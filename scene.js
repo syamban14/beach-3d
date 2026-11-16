@@ -1012,9 +1012,9 @@ function getIslandSlopeEuler(x, z, rotY, slopeFactor = 0.55) {
 }
 
 /**
- * Equip beach_set, campfire, and glamping tent meshes with UVs, wood/canvas normal maps, and ember/lantern glow.
+ * Equip beach_set, campfire, tent, and fallen coconut cluster meshes with UVs, normal maps, and glow.
  */
-function prepareCampAndBeachAssets(beachSetAsset, campfireAsset, tentAsset) {
+function prepareCampAndBeachAssets(beachSetAsset, campfireAsset, tentAsset, coconutAsset) {
   const { woodNormalMap, canvasNormalMap } = createWoodAndCanvasNormalTextures(256);
 
   const applyUVs = (geo, scaleU, scaleV) => {
@@ -1156,6 +1156,26 @@ function prepareCampAndBeachAssets(beachSetAsset, campfireAsset, tentAsset) {
       child.receiveShadow = true;
     });
   }
+
+  if (coconutAsset) {
+    coconutAsset.traverse((child) => {
+      if (!child.isMesh || !child.geometry) return;
+      const hasVCol = Boolean(child.geometry.attributes.color);
+      applyUVs(child.geometry, 1.4, 1.4);
+      const isSplit = child.name === 'SplitCoconutHalves';
+      const isSand = child.name === 'CoconutSandAndHusks';
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        normalMap: woodNormalMap,
+        normalScale: new THREE.Vector2(isSplit ? 0.35 : 0.62, isSplit ? 0.35 : 0.62),
+        roughness: isSplit ? 0.42 : isSand ? 0.86 : 0.64,
+        metalness: 0.02,
+        envMapIntensity: isSplit ? 0.62 : 0.48,
+      });
+      child.castShadow = !isSand;
+      child.receiveShadow = true;
+    });
+  }
 }
 
 /**
@@ -1173,6 +1193,7 @@ async function loadBlenderAssets() {
     'beach_set',
     'campfire',
     'tent',
+    'coconut',
     'seagull',
     'ocean',
     'person',
@@ -1181,7 +1202,7 @@ async function loadBlenderAssets() {
   const loadOne = (name) =>
     new Promise((resolve, reject) => {
       loader.load(
-        `./assets/models/${name}.glb?v=8`,
+        `./assets/models/${name}.glb?v=9`,
         (gltf) => {
           gltf.scene.traverse((child) => {
             if (child.isMesh) {
@@ -2287,7 +2308,7 @@ async function init() {
   let currentBeamScale = 0.06;
 
   // 5. Beach Umbrella & Lounger Sets (placed cleanly on upper dry sand above waves)
-  prepareCampAndBeachAssets(assets.beach_set, assets.campfire, assets.tent);
+  prepareCampAndBeachAssets(assets.beach_set, assets.campfire, assets.tent, assets.coconut);
   const beachSpots = [
     { x: -4.8, z: -20.6, rot: 0.28 },
     { x: 4.2, z: -20.5, rot: -0.38 },
@@ -2363,6 +2384,25 @@ async function init() {
     tree.userData.phase = Math.random() * Math.PI * 2;
     scene.add(tree);
     palmTrees.push(tree);
+  }
+
+  // Fallen Coconut Clusters beneath coastal palm trees and along beach sand
+  const coconutPlacements = [
+    { x: -2.6, z: -20.2, rot: 0.4, s: 1.08 },
+    { x: -6.2, z: -22.3, rot: 1.8, s: 1.12 },
+    { x: 2.1, z: -19.8, rot: -0.7, s: 1.04 },
+    { x: 4.8, z: -23.8, rot: 2.4, s: 1.10 },
+    { x: -9.8, z: -21.2, rot: -1.3, s: 0.98 },
+    { x: 10.1, z: -21.4, rot: 0.9, s: 1.05 },
+    { x: -0.9, z: -25.6, rot: 2.9, s: 1.00 },
+  ];
+  for (const c of coconutPlacements) {
+    const cy = getIslandElevation(c.x - ISLAND_CENTER.x, c.z - ISLAND_CENTER.y);
+    const coco = assets.coconut.clone(true);
+    coco.position.set(c.x, cy + 0.015, c.z);
+    coco.scale.setScalar(c.s);
+    coco.rotation.copy(getIslandSlopeEuler(c.x, c.z, c.rot, 0.55));
+    scene.add(coco);
   }
 
   // 8. Circling Seagulls

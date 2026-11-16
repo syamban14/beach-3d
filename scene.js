@@ -652,6 +652,99 @@ function prepareSailboatAsset(sailboatAsset) {
 }
 
 /**
+ * Create a depth-only occluder matching the sailboat hull volume and sheer cap so water never clips inside.
+ */
+function createHullWaterMask() {
+  const hullStations = [
+    [-3.05, 0.90, 0.74, -0.16],
+    [-2.10, 1.14, 0.69, -0.35],
+    [-0.80, 1.26, 0.67, -0.44],
+    [0.60, 1.17, 0.69, -0.42],
+    [1.90, 0.86, 0.75, -0.30],
+    [2.85, 0.44, 0.88, -0.10],
+    [3.58, 0.04, 1.04, 0.30],
+  ];
+
+  const evalStation = (vT) => {
+    const scaled = THREE.MathUtils.clamp(vT, 0, 1) * (hullStations.length - 1);
+    const idx = Math.min(hullStations.length - 2, Math.floor(scaled));
+    const frac = scaled - idx;
+    const fracS = frac * frac * (3 - 2 * frac);
+    const a = hullStations[idx];
+    const b = hullStations[idx + 1];
+    return [
+      a[0] + (b[0] - a[0]) * fracS,
+      a[1] + (b[1] - a[1]) * fracS,
+      a[2] + (b[2] - a[2]) * fracS,
+      a[3] + (b[3] - a[3]) * fracS,
+    ];
+  };
+
+  const slices = 24;
+  const uSegs = 12;
+  const ringVerts = uSegs + 1;
+  const positions = [];
+  const indices = [];
+
+  for (let i = 0; i <= slices; i++) {
+    const vT = 0.002 + (i / slices) * 0.996;
+    const [yBlender, halfBeam, sheerZ, keelZ] = evalStation(vT);
+    const topCapY = sheerZ - 0.03;
+
+    for (let k = 0; k <= uSegs; k++) {
+      const tParam = -1 + (k / uSegs) * 2;
+      const u = Math.abs(tParam);
+      let x = Math.sign(tParam) * halfBeam * Math.sin(u * Math.PI * 0.5);
+      if (u > 0.7) {
+        x *= 1 + 0.055 * (u - 0.7);
+      }
+      const hullZ = keelZ + (sheerZ - keelZ) * Math.pow(u, 1.65);
+      const yThree = k === 0 || k === uSegs ? topCapY : Math.min(topCapY, hullZ + 0.015);
+      positions.push(x * 0.985, yThree, -yBlender);
+    }
+  }
+
+  for (let i = 0; i < slices; i++) {
+    const r0 = i * ringVerts;
+    const r1 = (i + 1) * ringVerts;
+    for (let k = 0; k < uSegs; k++) {
+      indices.push(r0 + k, r1 + k, r1 + k + 1);
+      indices.push(r0 + k, r1 + k + 1, r0 + k + 1);
+    }
+    // Seal sheer-level deck/cockpit opening between port (k=0) and starboard (k=uSegs)
+    indices.push(r0 + uSegs, r1 + uSegs, r1);
+    indices.push(r0 + uSegs, r1, r0);
+  }
+
+  // Seal stern (i=0) and bow (i=slices) cross-section caps
+  const sternBase = 0;
+  const bowBase = slices * ringVerts;
+  for (let k = 1; k < uSegs; k++) {
+    indices.push(sternBase, sternBase + k + 1, sternBase + k);
+    indices.push(bowBase, bowBase + k, bowBase + k + 1);
+  }
+
+  const maskGeo = new THREE.BufferGeometry();
+  maskGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  maskGeo.setIndex(indices);
+  maskGeo.computeVertexNormals();
+
+  const maskMat = new THREE.MeshBasicMaterial({
+    colorWrite: false,
+    depthWrite: true,
+    depthTest: true,
+    side: THREE.DoubleSide,
+  });
+
+  const maskMesh = new THREE.Mesh(maskGeo, maskMat);
+  maskMesh.name = 'HullWaterMask';
+  maskMesh.renderOrder = 1;
+  maskMesh.castShadow = false;
+  maskMesh.receiveShadow = false;
+  return maskMesh;
+}
+
+/**
  * Compute natural island elevation at local island coordinates (lx, lz).
  */
 function getIslandElevation(lx, lz) {
@@ -685,7 +778,7 @@ async function loadBlenderAssets() {
   const loadOne = (name) =>
     new Promise((resolve, reject) => {
       loader.load(
-        `./assets/models/${name}.glb?v=3`,
+        `./assets/models/${name}.glb?v=4`,
         (gltf) => {
           gltf.scene.traverse((child) => {
             if (child.isMesh) {
@@ -1196,6 +1289,7 @@ async function init() {
   });
 
   const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+  oceanMesh.renderOrder = 2;
   oceanMesh.castShadow = false;
   oceanMesh.receiveShadow = true;
   scene.add(oceanMesh);
@@ -1360,6 +1454,7 @@ async function init() {
   prepareSailboatAsset(assets.sailboat);
   const boatGroup = new THREE.Group();
   boatGroup.add(assets.sailboat);
+  boatGroup.add(createHullWaterMask());
 
   const bowBulbObj = assets.sailboat.getObjectByName('BowLanternBulb');
   const lanternBulbMat = bowBulbObj ? bowBulbObj.material : null;
@@ -1811,13 +1906,13 @@ async function init() {
     const forwardSlope = -sinY * wave.dx - cosY * wave.dz;
     const rightSlope = cosY * wave.dx - sinY * wave.dz;
 
-    const targetPitch = Math.atan(forwardSlope) * 0.72 + (boatState.speed / maxForward) * 0.04;
-    const targetRoll = -Math.atan(rightSlope) * 0.72 - steerInput * 0.08;
+    const targetPitch = Math.atan(forwardSlope) * 0.78 + (boatState.speed / maxForward) * 0.04;
+    const targetRoll = -Math.atan(rightSlope) * 0.78 - steerInput * 0.08;
 
     boatState.pitch = THREE.MathUtils.lerp(boatState.pitch, targetPitch, Math.min(1, dt * 6));
     boatState.roll = THREE.MathUtils.lerp(boatState.roll, targetRoll, Math.min(1, dt * 6));
 
-    boatGroup.position.set(boatState.x, wave.height + 0.14, boatState.z);
+    boatGroup.position.set(boatState.x, wave.height + 0.22, boatState.z);
     boatGroup.rotation.order = 'YXZ';
     boatGroup.rotation.y = boatState.yaw;
     boatGroup.rotation.x = boatState.pitch;

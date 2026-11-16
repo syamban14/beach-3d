@@ -990,6 +990,174 @@ function getIslandElevation(lx, lz) {
 }
 
 /**
+ * Compute terrain-conforming YXZ Euler rotation from local island gradient.
+ */
+function getIslandSlopeEuler(x, z, rotY, slopeFactor = 0.55) {
+  const lx = x - ISLAND_CENTER.x;
+  const lz = z - ISLAND_CENTER.y;
+  const eps = 0.35;
+  const dhdx = (getIslandElevation(lx + eps, lz) - getIslandElevation(lx - eps, lz)) / (2 * eps);
+  const dhdz = (getIslandElevation(lx, lz + eps) - getIslandElevation(lx, lz - eps)) / (2 * eps);
+  const sinY = Math.sin(rotY);
+  const cosY = Math.cos(rotY);
+  const slopeRight = cosY * dhdx - sinY * dhdz;
+  const slopeFwd = sinY * dhdx + cosY * dhdz;
+  return new THREE.Euler(
+    -Math.atan(slopeFwd) * slopeFactor,
+    rotY,
+    Math.atan(slopeRight) * slopeFactor,
+    'YXZ'
+  );
+}
+
+/**
+ * Equip beach_set, campfire, and glamping tent meshes with UVs, wood/canvas normal maps, and ember/lantern glow.
+ */
+function prepareCampAndBeachAssets(beachSetAsset, campfireAsset, tentAsset) {
+  const { woodNormalMap, canvasNormalMap } = createWoodAndCanvasNormalTextures(256);
+
+  const applyUVs = (geo, scaleU, scaleV) => {
+    const pos = geo.attributes.position;
+    if (!pos) return;
+    const uvs = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      uvs[i * 2] = (pos.getX(i) + pos.getZ(i)) * scaleU;
+      uvs[i * 2 + 1] = (pos.getY(i) + pos.getZ(i) * 0.35) * scaleV;
+    }
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  };
+
+  if (beachSetAsset) {
+    const fabricNames = new Set(['UmbrellaCanopy', 'LoungerCushionAndTowel']);
+    beachSetAsset.traverse((child) => {
+      if (!child.isMesh || !child.geometry) return;
+      const hasVCol = Boolean(child.geometry.attributes.color);
+      if (fabricNames.has(child.name)) {
+        applyUVs(child.geometry, 1.1, 1.1);
+        child.material = new THREE.MeshStandardMaterial({
+          vertexColors: hasVCol,
+          normalMap: canvasNormalMap,
+          normalScale: new THREE.Vector2(0.48, 0.48),
+          roughness: 0.78,
+          metalness: 0.02,
+          envMapIntensity: 0.5,
+          side: THREE.DoubleSide,
+        });
+      } else {
+        applyUVs(child.geometry, 0.9, 0.75);
+        child.material = new THREE.MeshStandardMaterial({
+          vertexColors: hasVCol,
+          normalMap: woodNormalMap,
+          normalScale: new THREE.Vector2(0.5, 0.5),
+          roughness: 0.62,
+          metalness: 0.04,
+          envMapIntensity: 0.55,
+        });
+      }
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+  }
+
+  if (campfireAsset) {
+    campfireAsset.traverse((child) => {
+      if (!child.isMesh || !child.geometry) return;
+      const hasVCol = Boolean(child.geometry.attributes.color);
+      if (child.name === 'CampfireFlame') {
+        child.material = new THREE.MeshStandardMaterial({
+          vertexColors: hasVCol,
+          emissive: new THREE.Color('#ff7a18'),
+          emissiveIntensity: 2.2,
+          roughness: 0.25,
+          metalness: 0.0,
+        });
+        child.castShadow = false;
+        child.receiveShadow = false;
+      } else if (child.name === 'EmberBed') {
+        child.material = new THREE.MeshStandardMaterial({
+          vertexColors: hasVCol,
+          emissive: new THREE.Color('#ff4800'),
+          emissiveIntensity: 1.5,
+          roughness: 0.55,
+          metalness: 0.05,
+        });
+        child.castShadow = false;
+        child.receiveShadow = true;
+      } else if (child.name === 'CampfireLogs') {
+        applyUVs(child.geometry, 1.2, 0.8);
+        child.material = new THREE.MeshStandardMaterial({
+          vertexColors: hasVCol,
+          normalMap: woodNormalMap,
+          normalScale: new THREE.Vector2(0.55, 0.55),
+          roughness: 0.86,
+          metalness: 0.02,
+        });
+        child.castShadow = true;
+        child.receiveShadow = true;
+      } else {
+        child.material = new THREE.MeshStandardMaterial({
+          vertexColors: hasVCol,
+          roughness: 0.9,
+          metalness: 0.03,
+        });
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+  }
+
+  if (tentAsset) {
+    const canvasNames = new Set(['TentCanvasBody', 'TentInteriorBedding']);
+    tentAsset.traverse((child) => {
+      if (!child.isMesh || !child.geometry) return;
+      const hasVCol = Boolean(child.geometry.attributes.color);
+      if (child.name === 'TentLanternBulb') {
+        child.material = new THREE.MeshStandardMaterial({
+          color: '#ffd584',
+          emissive: new THREE.Color('#ff9d2e'),
+          emissiveIntensity: 0.9,
+          roughness: 0.2,
+          metalness: 0.0,
+        });
+        child.castShadow = false;
+        return;
+      }
+      if (child.name === 'TentLanternFrame') {
+        child.material = new THREE.MeshStandardMaterial({
+          vertexColors: hasVCol,
+          roughness: 0.28,
+          metalness: 0.86,
+          envMapIntensity: 0.95,
+        });
+      } else if (canvasNames.has(child.name)) {
+        applyUVs(child.geometry, 0.85, 0.85);
+        child.material = new THREE.MeshStandardMaterial({
+          vertexColors: hasVCol,
+          normalMap: canvasNormalMap,
+          normalScale: new THREE.Vector2(0.42, 0.42),
+          roughness: 0.8,
+          metalness: 0.02,
+          envMapIntensity: 0.48,
+          side: THREE.DoubleSide,
+        });
+      } else {
+        applyUVs(child.geometry, 0.95, 0.75);
+        child.material = new THREE.MeshStandardMaterial({
+          vertexColors: hasVCol,
+          normalMap: woodNormalMap,
+          normalScale: new THREE.Vector2(0.52, 0.52),
+          roughness: 0.64,
+          metalness: 0.04,
+          envMapIntensity: 0.55,
+        });
+      }
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+  }
+}
+
+/**
  * Load all Blender-exported GLB assets in parallel.
  */
 async function loadBlenderAssets() {
@@ -1003,6 +1171,7 @@ async function loadBlenderAssets() {
     'rock_cluster',
     'beach_set',
     'campfire',
+    'tent',
     'seagull',
     'ocean',
     'person',
@@ -1011,7 +1180,7 @@ async function loadBlenderAssets() {
   const loadOne = (name) =>
     new Promise((resolve, reject) => {
       loader.load(
-        `./assets/models/${name}.glb?v=5`,
+        `./assets/models/${name}.glb?v=6`,
         (gltf) => {
           gltf.scene.traverse((child) => {
             if (child.isMesh) {
@@ -1648,32 +1817,52 @@ async function init() {
   const beaconWorldPos = new THREE.Vector3(lhX, lhBaseY - 0.1 + 10.62, lhZ);
   let currentBeamScale = 0.06;
 
-  // 5. Beach Umbrella & Lounger Sets
+  // 5. Beach Umbrella & Lounger Sets (placed cleanly on upper dry sand above waves)
+  prepareCampAndBeachAssets(assets.beach_set, assets.campfire, assets.tent);
   const beachSpots = [
-    { x: -6.2, z: -15.5, rot: 0.25 },
-    { x: 5.5, z: -14.8, rot: -0.45 },
+    { x: -4.8, z: -20.6, rot: 0.28 },
+    { x: 4.2, z: -20.5, rot: -0.38 },
   ];
   for (const spot of beachSpots) {
     const setObj = assets.beach_set.clone(true);
     const gy = getIslandElevation(spot.x - ISLAND_CENTER.x, spot.z - ISLAND_CENTER.y);
-    setObj.position.set(spot.x, gy - 0.05, spot.z);
-    setObj.rotation.y = spot.rot;
+    setObj.position.set(spot.x, gy + 0.03, spot.z);
+    setObj.rotation.copy(getIslandSlopeEuler(spot.x, spot.z, spot.rot, 0.45));
     scene.add(setObj);
   }
 
-  // 6. Beach Campfire
+  // 6. Beach Campfire & Glamping Tent
   const fireGroup = new THREE.Group();
-  const fireX = 7.5;
-  const fireZ = -19.2;
+  const fireX = 6.8;
+  const fireZ = -20.8;
   const fireY = getIslandElevation(fireX - ISLAND_CENTER.x, fireZ - ISLAND_CENTER.y);
-  fireGroup.position.set(fireX, fireY, fireZ);
+  fireGroup.position.set(fireX, fireY + 0.02, fireZ);
+  fireGroup.rotation.copy(getIslandSlopeEuler(fireX, fireZ, 0.2, 0.35));
   fireGroup.add(assets.campfire);
 
   const flameMesh = assets.campfire.getObjectByName('CampfireFlame');
+  const emberObj = assets.campfire.getObjectByName('EmberBed');
+  const emberBedMat = emberObj ? emberObj.material : null;
   const campfireLight = new THREE.PointLight('#ff6a1a', 0.8, 22, 1.6);
   campfireLight.position.set(0, 0.85, 0);
   fireGroup.add(campfireLight);
   scene.add(fireGroup);
+
+  const tentGroup = new THREE.Group();
+  const tentX = 8.4;
+  const tentZ = -23.2;
+  const tentRot = -0.55;
+  const tentY = getIslandElevation(tentX - ISLAND_CENTER.x, tentZ - ISLAND_CENTER.y);
+  tentGroup.position.set(tentX, tentY + 0.02, tentZ);
+  tentGroup.rotation.copy(getIslandSlopeEuler(tentX, tentZ, tentRot, 0.38));
+  tentGroup.add(assets.tent);
+
+  const tentBulbObj = assets.tent.getObjectByName('TentLanternBulb');
+  const tentBulbMat = tentBulbObj ? tentBulbObj.material : null;
+  const tentLight = new THREE.PointLight('#ffac4d', 0.6, 14, 1.7);
+  tentLight.position.set(0, 1.75, 1.32);
+  tentGroup.add(tentLight);
+  scene.add(tentGroup);
 
   // 7. Palm Trees across the Island
   const palmPlacements = [
@@ -1850,6 +2039,10 @@ async function init() {
       beaconFlashDisc.userData.baseOpacity * currentBeamScale * 0.22;
     beaconLight.intensity = preset.beaconIntensity;
     beaconSpotLight.intensity = preset.beaconIntensity * (key === 'night' ? 7.5 : key === 'sunset' ? 4.2 : 0.3);
+    tentLight.intensity = preset.lanternIntensity * 0.72;
+    if (tentBulbMat) {
+      tentBulbMat.emissiveIntensity = 0.55 + nightFactor * 1.8;
+    }
 
     for (const pl of pierLanternLights) {
       pl.intensity = preset.lanternIntensity;
@@ -2273,8 +2466,13 @@ async function init() {
       beaconFlashDisc.scale.setScalar(0.85 + flashFactor * 0.65);
 
       const flicker = 0.85 + Math.sin(elapsed * 14) * 0.1 + Math.cos(elapsed * 23) * 0.08;
+      const widthFlicker = 0.96 + Math.sin(elapsed * 11.5) * 0.05;
       if (flameMesh) {
-        flameMesh.scale.set(1, flicker, 1);
+        flameMesh.scale.set(widthFlicker, flicker, widthFlicker);
+        flameMesh.rotation.y = Math.sin(elapsed * 4.2) * 0.12;
+      }
+      if (emberBedMat) {
+        emberBedMat.emissiveIntensity = 1.2 + flicker * 0.75;
       }
       campfireLight.intensity = currentTimePreset.campfireIntensity * flicker;
 

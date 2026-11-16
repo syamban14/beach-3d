@@ -336,6 +336,113 @@ function prepareRockClusterAsset(rockAsset, rockNormalMap) {
 }
 
 /**
+ * Generate a seamlessly tileable procedural normal map DataTexture for beach sand grain, ripples, and soil clods.
+ */
+function createTerrainNormalTexture(size = 256) {
+  const heights = new Float32Array(size * size);
+  const twoPi = Math.PI * 2;
+  const grainHarmonics = [
+    [6, 4, 0.24, 0.5],
+    [-8, 7, 0.20, 1.3],
+    [13, 9, 0.14, 2.2],
+    [-17, 14, 0.11, 0.9],
+    [23, -19, 0.08, 3.1],
+    [-29, 27, 0.06, 1.8],
+    [37, -31, 0.045, 2.6],
+  ];
+
+  for (let py = 0; py < size; py++) {
+    const v = py / size;
+    for (let px = 0; px < size; px++) {
+      const u = px / size;
+      const windRipple = Math.sin(twoPi * (3 * u - 2 * v) + 0.45 * Math.sin(twoPi * (u + v)));
+      let grain = 0;
+      for (let i = 0; i < grainHarmonics.length; i++) {
+        const [kx, ky, amp, phase] = grainHarmonics[i];
+        grain += Math.sin(twoPi * (kx * u + ky * v) + phase) * amp;
+      }
+      heights[py * size + px] = windRipple * 0.22 + grain;
+    }
+  }
+
+  const data = new Uint8Array(size * size * 4);
+  const strength = 2.1;
+  for (let py = 0; py < size; py++) {
+    const ym = (py - 1 + size) % size;
+    const yp = (py + 1) % size;
+    for (let px = 0; px < size; px++) {
+      const xm = (px - 1 + size) % size;
+      const xp = (px + 1) % size;
+      const dHdx = (heights[py * size + xp] - heights[py * size + xm]) * 0.5 * size * 0.01;
+      const dHdy = (heights[yp * size + px] - heights[ym * size + px]) * 0.5 * size * 0.01;
+
+      const nx = -dHdx * strength;
+      const ny = -dHdy * strength;
+      const nz = 1.0;
+      const invLen = 1 / Math.hypot(nx, ny, nz);
+
+      const offset = (py * size + px) * 4;
+      data[offset] = Math.round((nx * invLen * 0.5 + 0.5) * 255);
+      data[offset + 1] = Math.round((ny * invLen * 0.5 + 0.5) * 255);
+      data[offset + 2] = Math.round((nz * invLen * 0.5 + 0.5) * 255);
+      data[offset + 3] = 255;
+    }
+  }
+
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * Configure island terrain, shells, and 3D grass tufts with tiled UVs and surface detail materials.
+ */
+function prepareIslandAsset(islandAsset, terrainNormalMap) {
+  if (!islandAsset) return;
+  islandAsset.traverse((child) => {
+    if (!child.isMesh || !child.geometry) return;
+    const geo = child.geometry;
+    const isGrass = child.name === 'IslandGrassTufts' || child.name === 'CoastalDuneGrass';
+
+    if (isGrass) {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: Boolean(geo.attributes.color),
+        roughness: 0.50,
+        metalness: 0.02,
+        envMapIntensity: 0.55,
+        side: THREE.DoubleSide,
+      });
+    } else {
+      const pos = geo.attributes.position;
+      if (pos) {
+        const uvs = new Float32Array(pos.count * 2);
+        for (let i = 0; i < pos.count; i++) {
+          uvs[i * 2] = pos.getX(i) * 0.45;
+          uvs[i * 2 + 1] = pos.getZ(i) * 0.45;
+        }
+        geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+      }
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: Boolean(geo.attributes.color),
+        normalMap: terrainNormalMap,
+        normalScale: new THREE.Vector2(0.72, 0.72),
+        roughness: 0.82,
+        metalness: 0.04,
+        envMapIntensity: 0.55,
+      });
+    }
+
+    child.castShadow = true;
+    child.receiveShadow = true;
+  });
+}
+
+/**
  * Compute natural island elevation at local island coordinates (lx, lz).
  */
 function getIslandElevation(lx, lz) {
@@ -884,7 +991,9 @@ async function init() {
   oceanMesh.receiveShadow = true;
   scene.add(oceanMesh);
 
-  // 1. Island Terrain
+  // 1. Island Terrain (rippled sand, soil transition, 3D grass tufts & coastal shells)
+  const terrainNormalMap = createTerrainNormalTexture(256);
+  prepareIslandAsset(assets.island, terrainNormalMap);
   const islandModel = assets.island;
   islandModel.position.set(ISLAND_CENTER.x, 0, ISLAND_CENTER.y);
   scene.add(islandModel);

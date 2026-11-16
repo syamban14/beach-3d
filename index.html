@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Teluk Senja | Eksplorasi Pantai dan Perahu 3D</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='30' fill='%230a4d78'/><path d='M18 38 L46 38 L40 46 L24 46 Z' fill='%23f59e0b'/><path d='M32 12 L44 35 L32 35 Z' fill='%23f8f4ea'/></svg>"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="ocean-canvas" aria-label="Pemandangan laut dan pantai 3D interaktif"></canvas>
+
+    <header class="top-nav">
+      <a href="#ocean-canvas" class="brand-wordmark">Teluk Senja</a>
+
+      <div class="nav-controls">
+        <fieldset class="segmented-control" role="radiogroup" aria-label="Waktu pencahayaan">
+          <legend class="sr-only">Waktu pencahayaan</legend>
+          <label class="segment-option">
+            <input type="radio" name="time-of-day" value="day" checked />
+            <span>Siang</span>
+          </label>
+          <label class="segment-option">
+            <input type="radio" name="time-of-day" value="sunset" />
+            <span>Senja</span>
+          </label>
+          <label class="segment-option">
+            <input type="radio" name="time-of-day" value="night" />
+            <span>Malam</span>
+          </label>
+        </fieldset>
+
+        <fieldset class="segmented-control" role="radiogroup" aria-label="Mode kamera">
+          <legend class="sr-only">Mode kamera</legend>
+          <label class="segment-option">
+            <input type="radio" name="camera-mode" value="free" checked />
+            <span>Kamera Bebas</span>
+          </label>
+          <label class="segment-option">
+            <input type="radio" name="camera-mode" value="follow" />
+            <span>Ikuti Perahu</span>
+          </label>
+        </fieldset>
+      </div>
+    </header>
+
+    <main class="hud-panel">
+      <section class="hud-story">
+        <h1>Kemudikan Perahu di Pesisir Tropis</h1>
+        <p class="hud-desc">
+          Gunakan tombol W, A, S, D atau panah untuk berlayar membelah ombak, dan geser layar untuk memutar sudut kamera.
+        </p>
+
+        <div class="hud-actions">
+          <div class="telemetry-bar" aria-live="polite">
+            <div class="telemetry-item">
+              <span class="telemetry-label">Kecepatan</span>
+              <span class="telemetry-value" id="speed-value">0.0 kn</span>
+            </div>
+            <div class="telemetry-divider" aria-hidden="true"></div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">Arah</span>
+              <span class="telemetry-value" id="heading-value">000°</span>
+            </div>
+            <div class="telemetry-divider" aria-hidden="true"></div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">Perairan</span>
+              <span class="telemetry-value" id="zone-value">Teluk Terbuka</span>
+            </div>
+          </div>
+
+          <button type="button" id="reset-boat-btn" class="primary-cta">
+            Reset Posisi Perahu
+          </button>
+        </div>
+      </section>
+
+      <nav class="touch-controls" aria-label="Kendali arah perahu">
+        <button type="button" class="steer-btn steer-up" data-control="forward" aria-label="Maju">
+          Maju
+        </button>
+        <div class="steer-middle">
+          <button type="button" class="steer-btn steer-left" data-control="left" aria-label="Belok kiri">
+            Kiri
+          </button>
+          <button type="button" class="steer-btn steer-down" data-control="backward" aria-label="Mundur">
+            Mundur
+          </button>
+          <button type="button" class="steer-btn steer-right" data-control="right" aria-label="Belok kanan">
+            Kanan
+          </button>
+        </div>
+      </nav>
+    </main>
+
+    <script type="module" src="./scene.js"></script>
+  </body>
+</html>

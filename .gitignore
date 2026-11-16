@@ -1,0 +1,11 @@
+# Blender backup files
+*.blend1
+*.blend2
+
+# OS & Python artifacts
+.DS_Store
+__pycache__/
+*.pyc
+
+# Build staging directory
+_site/

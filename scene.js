@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 const ISLAND_CENTER = new THREE.Vector2(0, -28);
 const ISLAND_COLLISION_RADIUS = 22;
@@ -1180,7 +1181,7 @@ async function loadBlenderAssets() {
   const loadOne = (name) =>
     new Promise((resolve, reject) => {
       loader.load(
-        `./assets/models/${name}.glb?v=7`,
+        `./assets/models/${name}.glb?v=8`,
         (gltf) => {
           gltf.scene.traverse((child) => {
             if (child.isMesh) {
@@ -1859,6 +1860,146 @@ function createPierFisher(personAsset, scene) {
   };
 }
 
+/**
+ * Pose a cloned person.glb character in a reclined resting pose under the left beach umbrella
+ * with tropical coral-orange shirt, navy shorts, sunglasses, and subtle breathing/head animation.
+ */
+function createBeachLoungerPerson(personClone, beachSetGroup) {
+  if (!personClone || !beachSetGroup) return null;
+
+  const loungerGroup = new THREE.Group();
+  loungerGroup.position.set(0.48, -0.38, -0.11);
+  beachSetGroup.add(loungerGroup);
+
+  const recolorMap = {
+    ShirtCoastal: '#e0533c',
+    UndershirtCream: '#faf5e8',
+    ShortsSand: '#1e3a5f',
+    ShoeCanvasNavy: '#b87342',
+    HatBandCoral: '#1b4d6e',
+  };
+
+  const clonedMatCache = new Map();
+  const bones = {};
+
+  personClone.traverse((child) => {
+    if (child.isBone) {
+      bones[child.name] = child;
+    }
+    if (child.isMesh) {
+      if (child.material) {
+        let newMat = clonedMatCache.get(child.material.uuid);
+        if (!newMat) {
+          newMat = child.material.clone();
+          const mName = child.material.name || '';
+          for (const [prefix, hex] of Object.entries(recolorMap)) {
+            if (mName.startsWith(prefix)) {
+              newMat.color.set(hex);
+              break;
+            }
+          }
+          clonedMatCache.set(child.material.uuid, newMat);
+        }
+        child.material = newMat;
+      }
+      child.castShadow = true;
+      child.receiveShadow = true;
+      child.frustumCulled = false;
+    }
+  });
+  loungerGroup.add(personClone);
+
+  const getBone = (name) => bones[name] || bones[name.replace(/\./g, '')];
+
+  // Blender-verified reclining sunlounger pose deltas (applied on top of glTF rest quaternions)
+  const poseDeltas = {
+    Pelvis: [-0.2756, 0.0, 0.0, 0.9613],
+    Spine: [-0.1564, 0.0, 0.0, 0.9877],
+    Chest: [-0.0698, 0.0, 0.0, 0.9976],
+    Neck: [0.1045, 0.0, 0.0, 0.9945],
+    Head: [0.1219, 0.0, 0.0, 0.9925],
+    'Thigh.L': [-0.5294, 0.0231, -0.037, 0.8472],
+    'Shin.L': [0.1392, 0.0024, 0.0173, 0.9901],
+    'Foot.L': [-0.0698, 0.0, 0.0, 0.9976],
+    'Thigh.R': [-0.5584, -0.0293, 0.0434, 0.8279],
+    'Shin.R': [0.1907, -0.005, -0.0257, 0.9813],
+    'Foot.R': [-0.0523, 0.0, 0.0, 0.9986],
+    'UpperArm.L': [-0.2007, 0.0995, -0.0499, 0.9733],
+    'Forearm.L': [-0.1536, 0.1298, 0.336, 0.9201],
+    'UpperArm.R': [-0.2176, -0.1003, 0.0482, 0.9697],
+    'Forearm.R': [-0.1717, -0.1209, -0.3542, 0.9113],
+  };
+
+  const baseQuats = {};
+  for (const [bName, [qx, qy, qz, qw]] of Object.entries(poseDeltas)) {
+    const bone = getBone(bName);
+    if (bone) {
+      bone.quaternion.multiply(new THREE.Quaternion(qx, qy, qz, qw));
+      baseQuats[bName] = bone.quaternion.clone();
+    }
+  }
+
+  // Dark beach sunglasses attached to Head bone
+  const headBone = getBone('Head');
+  if (headBone) {
+    const sunglassesGroup = new THREE.Group();
+    const frameMat = new THREE.MeshStandardMaterial({ color: '#1b2028', roughness: 0.3, metalness: 0.4 });
+    const lensMat = new THREE.MeshStandardMaterial({
+      color: '#0d1520',
+      roughness: 0.1,
+      metalness: 0.65,
+      envMapIntensity: 1.2,
+    });
+
+    const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.136, 0.008, 0.014), frameMat);
+    topBar.position.set(0, 0.140, 0.114);
+    sunglassesGroup.add(topBar);
+
+    for (const sx of [-0.038, 0.038]) {
+      const lens = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.032, 0.012), lensMat);
+      lens.position.set(sx, 0.126, 0.114);
+      sunglassesGroup.add(lens);
+    }
+
+    for (const tx of [-0.068, 0.068]) {
+      const temple = new THREE.Mesh(new THREE.BoxGeometry(0.007, 0.008, 0.110), frameMat);
+      temple.position.set(tx, 0.132, 0.058);
+      sunglassesGroup.add(temple);
+    }
+
+    headBone.add(sunglassesGroup);
+  }
+
+  const rotTemp = new THREE.Quaternion();
+  const eulerTemp = new THREE.Euler();
+
+  function applyDelta(bName, rx, ry, rz) {
+    const bone = getBone(bName);
+    const baseQ = baseQuats[bName];
+    if (!bone || !baseQ) return;
+    eulerTemp.set(rx, ry, rz, 'XYZ');
+    rotTemp.setFromEuler(eulerTemp);
+    bone.quaternion.copy(baseQ).multiply(rotTemp);
+  }
+
+  return {
+    update(elapsed) {
+      const breath = Math.sin(elapsed * 1.15) * 0.025;
+      applyDelta('Spine', breath * 0.6, 0, 0);
+      applyDelta('Chest', breath * 0.8, 0, 0);
+
+      const headTurn = Math.sin(elapsed * 0.42) * 0.12;
+      applyDelta('Head', Math.sin(elapsed * 0.7) * 0.02, headTurn, 0);
+
+      const footRelax = Math.sin(elapsed * 1.45) * 0.05;
+      applyDelta('Foot.L', footRelax, 0, 0);
+      applyDelta('Foot.R', -footRelax * 0.85, 0, 0);
+      applyDelta('Shin.L', Math.sin(elapsed * 0.85) * 0.025, 0, 0);
+      applyDelta('Shin.R', -Math.sin(elapsed * 0.85) * 0.02, 0, 0);
+    },
+  };
+}
+
 async function init() {
   const canvas = document.getElementById('ocean-canvas');
   const speedEl = document.getElementById('speed-value');
@@ -2063,7 +2204,7 @@ async function init() {
   const pierModel = assets.pier;
   scene.add(pierModel);
 
-  const pierFisher = createPierFisher(assets.person, scene);
+  const pierFisher = createPierFisher(SkeletonUtils.clone(assets.person), scene);
 
   const pierLanternLights = [];
   const lanternGlassMats = [];
@@ -2151,13 +2292,19 @@ async function init() {
     { x: -4.8, z: -20.6, rot: 0.28 },
     { x: 4.2, z: -20.5, rot: -0.38 },
   ];
-  for (const spot of beachSpots) {
+  let leftBeachSet = null;
+  beachSpots.forEach((spot, idx) => {
     const setObj = assets.beach_set.clone(true);
     const gy = getIslandElevation(spot.x - ISLAND_CENTER.x, spot.z - ISLAND_CENTER.y);
     setObj.position.set(spot.x, gy + 0.03, spot.z);
     setObj.rotation.copy(getIslandSlopeEuler(spot.x, spot.z, spot.rot, 0.45));
     scene.add(setObj);
-  }
+    if (idx === 0) {
+      leftBeachSet = setObj;
+    }
+  });
+
+  const beachLounger = createBeachLoungerPerson(SkeletonUtils.clone(assets.person), leftBeachSet);
 
   // 6. Beach Campfire & Glamping Tent
   const fireGroup = new THREE.Group();
@@ -2754,6 +2901,9 @@ async function init() {
     updateOceanVertices(animTime, prefersReducedMotion ? 0 : dt);
     updateBoatPhysics(dt, animTime);
     pierFisher.update(animTime);
+    if (beachLounger) {
+      beachLounger.update(animTime);
+    }
 
     if (!prefersReducedMotion) {
       for (const tree of palmTrees) {

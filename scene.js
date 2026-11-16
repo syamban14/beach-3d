@@ -443,6 +443,215 @@ function prepareIslandAsset(islandAsset, terrainNormalMap) {
 }
 
 /**
+ * Convert a periodic height function h(u, v) in [0, 1)^2 into a seamlessly tileable normal map DataTexture.
+ */
+function buildPeriodicNormalTexture(size, heightFn, strength) {
+  const heights = new Float32Array(size * size);
+  for (let py = 0; py < size; py++) {
+    const v = py / size;
+    for (let px = 0; px < size; px++) {
+      heights[py * size + px] = heightFn(px / size, v);
+    }
+  }
+
+  const data = new Uint8Array(size * size * 4);
+  for (let py = 0; py < size; py++) {
+    const ym = (py - 1 + size) % size;
+    const yp = (py + 1) % size;
+    for (let px = 0; px < size; px++) {
+      const xm = (px - 1 + size) % size;
+      const xp = (px + 1) % size;
+      const dHdx = (heights[py * size + xp] - heights[py * size + xm]) * 0.5 * size * 0.01;
+      const dHdy = (heights[yp * size + px] - heights[ym * size + px]) * 0.5 * size * 0.01;
+
+      const nx = -dHdx * strength;
+      const ny = -dHdy * strength;
+      const nz = 1.0;
+      const invLen = 1 / Math.hypot(nx, ny, nz);
+
+      const offset = (py * size + px) * 4;
+      data[offset] = Math.round((nx * invLen * 0.5 + 0.5) * 255);
+      data[offset + 1] = Math.round((ny * invLen * 0.5 + 0.5) * 255);
+      data[offset + 2] = Math.round((nz * invLen * 0.5 + 0.5) * 255);
+      data[offset + 3] = 255;
+    }
+  }
+
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * Generate seamless wood grain and woven sail canvas normal maps for sailboat materials.
+ */
+function createWoodAndCanvasNormalTextures(size = 256) {
+  const twoPi = Math.PI * 2;
+  const woodNormalMap = buildPeriodicNormalTexture(
+    size,
+    (u, v) => {
+      const warp = Math.sin(twoPi * (2 * u + v)) * 0.25 + Math.cos(twoPi * (3 * u - 2 * v)) * 0.14;
+      const grain =
+        Math.sin(twoPi * (14 * u + v + warp)) * 0.34 +
+        Math.sin(twoPi * (28 * u - 2 * v + warp)) * 0.16 +
+        Math.cos(twoPi * (19 * u + 7 * v)) * 0.08;
+      return grain;
+    },
+    1.85
+  );
+
+  const canvasNormalMap = buildPeriodicNormalTexture(
+    size,
+    (u, v) => {
+      const warpU = Math.sin(twoPi * 26 * u) * 0.32;
+      const weftV = Math.sin(twoPi * 26 * v) * 0.32;
+      const twill = Math.sin(twoPi * (13 * u + 13 * v)) * 0.08;
+      return warpU + weftV + twill;
+    },
+    1.45
+  );
+
+  return { woodNormalMap, canvasNormalMap };
+}
+
+/**
+ * Equip sailboat meshes with UVs, wood/canvas normal maps, metallic fittings, and lantern emission.
+ */
+function prepareSailboatAsset(sailboatAsset) {
+  if (!sailboatAsset) return;
+  const { woodNormalMap, canvasNormalMap } = createWoodAndCanvasNormalTextures(256);
+
+  const matteTeakNames = new Set(['BoatDeck', 'CockpitFloor', 'CockpitBenches', 'BoatKeel']);
+  const glossyHullNames = new Set(['BoatHull', 'LifeBuoy']);
+  const brassNames = new Set(['MastHoops', 'RudderHardware', 'BowLanternFrame', 'DeckCleats']);
+
+  sailboatAsset.traverse((child) => {
+    if (!child.isMesh || !child.geometry) return;
+    const geo = child.geometry;
+    const hasVCol = Boolean(geo.attributes.color);
+
+    if (child.name === 'BowLanternBulb') {
+      child.material = new THREE.MeshStandardMaterial({
+        color: '#ffd584',
+        emissive: new THREE.Color('#ff9d2e'),
+        emissiveIntensity: 0.85,
+        roughness: 0.2,
+        metalness: 0.0,
+      });
+      child.castShadow = false;
+      return;
+    }
+
+    const pos = geo.attributes.position;
+    const isSail = child.name === 'MainSail' || child.name === 'JibSail';
+    const isSpar = child.name === 'SparsAndMast';
+    if (pos) {
+      const uvs = new Float32Array(pos.count * 2);
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i);
+        const vy = pos.getY(i);
+        const vz = pos.getZ(i);
+        if (isSail) {
+          uvs[i * 2] = (vx + vz) * 0.72;
+          uvs[i * 2 + 1] = vy * 0.72;
+        } else if (isSpar) {
+          uvs[i * 2] = vx * 4.0 + vz * 0.15;
+          uvs[i * 2 + 1] = (vy + vz) * 0.42;
+        } else {
+          uvs[i * 2] = (vx + vy) * 1.35;
+          uvs[i * 2 + 1] = (vz + vx * 0.25) * 0.42;
+        }
+      }
+      geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    }
+
+    if (isSail) {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        normalMap: canvasNormalMap,
+        normalScale: new THREE.Vector2(0.45, 0.45),
+        roughness: 0.62,
+        metalness: 0.02,
+        envMapIntensity: 0.45,
+        side: THREE.DoubleSide,
+      });
+    } else if (child.name === 'BowAnchor') {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        roughness: 0.52,
+        metalness: 0.82,
+        envMapIntensity: 0.9,
+      });
+    } else if (brassNames.has(child.name)) {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        roughness: 0.26,
+        metalness: 0.86,
+        envMapIntensity: 1.0,
+      });
+    } else if (child.name === 'PulleyBlocks') {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        normalMap: woodNormalMap,
+        normalScale: new THREE.Vector2(0.35, 0.35),
+        roughness: 0.42,
+        metalness: 0.35,
+        envMapIntensity: 0.8,
+      });
+    } else if (child.name === 'RiggingLines') {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        normalMap: canvasNormalMap,
+        normalScale: new THREE.Vector2(0.35, 0.35),
+        roughness: 0.84,
+        metalness: 0.08,
+      });
+    } else if (glossyHullNames.has(child.name)) {
+      child.material = new THREE.MeshPhysicalMaterial({
+        vertexColors: hasVCol,
+        normalMap: woodNormalMap,
+        normalScale: new THREE.Vector2(0.42, 0.42),
+        roughness: 0.3,
+        metalness: 0.05,
+        clearcoat: 0.42,
+        clearcoatRoughness: 0.14,
+        envMapIntensity: 0.78,
+        side: THREE.DoubleSide,
+      });
+    } else if (matteTeakNames.has(child.name)) {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        normalMap: woodNormalMap,
+        normalScale: new THREE.Vector2(0.65, 0.65),
+        roughness: 0.68,
+        metalness: 0.04,
+        envMapIntensity: 0.55,
+      });
+    } else {
+      child.material = new THREE.MeshPhysicalMaterial({
+        vertexColors: hasVCol,
+        normalMap: woodNormalMap,
+        normalScale: new THREE.Vector2(0.55, 0.55),
+        roughness: 0.38,
+        metalness: 0.05,
+        clearcoat: 0.28,
+        clearcoatRoughness: 0.16,
+        envMapIntensity: 0.68,
+        side: THREE.DoubleSide,
+      });
+    }
+
+    child.castShadow = true;
+    child.receiveShadow = true;
+  });
+}
+
+/**
  * Compute natural island elevation at local island coordinates (lx, lz).
  */
 function getIslandElevation(lx, lz) {
@@ -476,7 +685,7 @@ async function loadBlenderAssets() {
   const loadOne = (name) =>
     new Promise((resolve, reject) => {
       loader.load(
-        `./assets/models/${name}.glb`,
+        `./assets/models/${name}.glb?v=3`,
         (gltf) => {
           gltf.scene.traverse((child) => {
             if (child.isMesh) {
@@ -1148,6 +1357,7 @@ async function init() {
   }
 
   // 9. Interactive Sailboat
+  prepareSailboatAsset(assets.sailboat);
   const boatGroup = new THREE.Group();
   boatGroup.add(assets.sailboat);
 

@@ -1180,7 +1180,7 @@ async function loadBlenderAssets() {
   const loadOne = (name) =>
     new Promise((resolve, reject) => {
       loader.load(
-        `./assets/models/${name}.glb?v=6`,
+        `./assets/models/${name}.glb?v=7`,
         (gltf) => {
           gltf.scene.traverse((child) => {
             if (child.isMesh) {
@@ -1203,36 +1203,364 @@ async function loadBlenderAssets() {
 }
 
 /**
- * Create trailing water wake meshes attached behind the sailboat stern.
+ * Create a realistic wave-conforming boat wake with cellular foam ribbons (V-wake & stern wash),
+ * steering curvature, and 3D ballistic water spray particles.
  */
-function createWakeGroup() {
-  const wakeGroup = new THREE.Group();
-  const wakeMat = new THREE.MeshBasicMaterial({
-    color: '#ffffff',
+function createBoatWakeSystem(scene) {
+  function createWakeFoamMaterial(mode) {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uFoamColor: { value: new THREE.Color('#ecf8ff') },
+        uWaterTint: { value: new THREE.Color('#1996ad') },
+        uTime: { value: 0 },
+        uFlow: { value: 0 },
+        uIntensity: { value: 0 },
+        uMode: { value: mode },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uFoamColor;
+        uniform vec3 uWaterTint;
+        uniform float uTime;
+        uniform float uFlow;
+        uniform float uIntensity;
+        uniform float uMode;
+        varying vec2 vUv;
+
+        void main() {
+          float u = vUv.x;
+          float v = vUv.y;
+          float flowV = v * 9.0 - uFlow;
+          vec2 p = vec2((u - 0.5) * 4.5, flowV);
+          p.x += sin(flowV * 1.4 + u * 6.28318) * 0.28 + cos(flowV * 2.7 - u * 4.0 + uTime * 0.6) * 0.14;
+          p.y += sin(u * 8.0 + flowV * 1.1) * 0.24;
+
+          float cellA = 0.5 + 0.5 * sin(p.x * 3.1 + cos(p.y * 2.6));
+          float cellB = 0.5 + 0.5 * cos(p.x * 5.7 - p.y * 4.3 + sin(p.x * 2.2 + p.y * 3.1));
+          float lace = smoothstep(0.32, 0.88, cellA * 0.58 + cellB * 0.52);
+          float bubble = pow(0.5 + 0.5 * sin(p.x * 9.5 + p.y * 7.2) * cos(p.y * 8.4 - p.x * 6.1), 2.0);
+
+          float edgeFeather = pow(max(0.0, sin(u * 3.14159265)), mix(1.4, 1.15, uMode));
+          float crestBias = mix(0.75 + 0.25 * (1.0 - abs(u - 0.5) * 2.0), 0.65 + 0.35 * sin(u * 3.14159265), uMode);
+          float axialFade = smoothstep(0.0, 0.08, v) * pow(max(0.0, 1.0 - v), 1.55);
+
+          float density = clamp((0.30 + 0.70 * lace + bubble * 0.35) * crestBias, 0.0, 1.0);
+          float breakUp = mix(1.0, smoothstep(0.16 + v * 0.36, 0.84, lace + bubble * 0.26), smoothstep(0.08, 0.72, v));
+          float alpha = clamp(edgeFeather * axialFade * breakUp * (0.48 + 0.52 * density) * uIntensity, 0.0, 0.92);
+
+          vec3 finalCol = mix(uWaterTint, uFoamColor, smoothstep(0.22, 0.78, density));
+          gl_FragColor = vec4(finalCol, alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide,
+    });
+  }
+
+  function createRibbonGeometry(lenSegs, wSegs) {
+    const vertCount = (lenSegs + 1) * (wSegs + 1);
+    const positions = new Float32Array(vertCount * 3);
+    const uvs = new Float32Array(vertCount * 2);
+    const indices = [];
+
+    let ptr = 0;
+    for (let i = 0; i <= lenSegs; i++) {
+      const v = i / lenSegs;
+      for (let j = 0; j <= wSegs; j++) {
+        const u = j / wSegs;
+        uvs[ptr * 2] = u;
+        uvs[ptr * 2 + 1] = v;
+        ptr++;
+      }
+    }
+
+    for (let i = 0; i < lenSegs; i++) {
+      const r0 = i * (wSegs + 1);
+      const r1 = (i + 1) * (wSegs + 1);
+      for (let j = 0; j < wSegs; j++) {
+        indices.push(r0 + j, r1 + j, r1 + j + 1);
+        indices.push(r0 + j, r1 + j + 1, r0 + j + 1);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    return { geo, positions, lenSegs, wSegs };
+  }
+
+  const sternData = createRibbonGeometry(26, 6);
+  const sternMat = createWakeFoamMaterial(0.0);
+  const sternWashMesh = new THREE.Mesh(sternData.geo, sternMat);
+  sternWashMesh.renderOrder = 3;
+  sternWashMesh.frustumCulled = false;
+  scene.add(sternWashMesh);
+
+  const leftData = createRibbonGeometry(24, 4);
+  const leftMat = createWakeFoamMaterial(1.0);
+  const leftWakeMesh = new THREE.Mesh(leftData.geo, leftMat);
+  leftWakeMesh.renderOrder = 3;
+  leftWakeMesh.frustumCulled = false;
+  scene.add(leftWakeMesh);
+
+  const rightData = createRibbonGeometry(24, 4);
+  const rightMat = createWakeFoamMaterial(1.0);
+  const rightWakeMesh = new THREE.Mesh(rightData.geo, rightMat);
+  rightWakeMesh.renderOrder = 3;
+  rightWakeMesh.frustumCulled = false;
+  scene.add(rightWakeMesh);
+
+  // 3D Ballistic Water Spray Particle System
+  const SPRAY_COUNT = 160;
+  const sprayPositions = new Float32Array(SPRAY_COUNT * 3);
+  const spraySizes = new Float32Array(SPRAY_COUNT);
+  const sprayAlphas = new Float32Array(SPRAY_COUNT);
+  const sprayVx = new Float32Array(SPRAY_COUNT);
+  const sprayVy = new Float32Array(SPRAY_COUNT);
+  const sprayVz = new Float32Array(SPRAY_COUNT);
+  const sprayLife = new Float32Array(SPRAY_COUNT);
+  const sprayMaxLife = new Float32Array(SPRAY_COUNT);
+
+  const sprayGeo = new THREE.BufferGeometry();
+  sprayGeo.setAttribute('position', new THREE.BufferAttribute(sprayPositions, 3));
+  sprayGeo.setAttribute('aSize', new THREE.BufferAttribute(spraySizes, 1));
+  sprayGeo.setAttribute('aAlpha', new THREE.BufferAttribute(sprayAlphas, 1));
+
+  const sprayMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uFoamColor: { value: new THREE.Color('#ecf8ff') },
+    },
+    vertexShader: `
+      attribute float aSize;
+      attribute float aAlpha;
+      varying float vAlpha;
+      void main() {
+        vAlpha = aAlpha;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = clamp(aSize * (260.0 / max(1.0, -mvPosition.z)), 2.0, 28.0);
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uFoamColor;
+      varying float vAlpha;
+      void main() {
+        vec2 d = gl_PointCoord - vec2(0.5);
+        float r = length(d);
+        if (r > 0.5) discard;
+        float rim = smoothstep(0.5, 0.14, r);
+        float core = exp(-r * r * 18.0);
+        float alpha = clamp(vAlpha * (rim * 0.65 + core * 0.55), 0.0, 0.95);
+        gl_FragColor = vec4(uFoamColor, alpha);
+      }
+    `,
     transparent: true,
-    opacity: 0.45,
-    side: THREE.DoubleSide,
     depthWrite: false,
+    depthTest: true,
   });
 
-  const leftWake = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 4.8), wakeMat.clone());
-  leftWake.rotation.x = -Math.PI / 2;
-  leftWake.rotation.z = -0.22;
-  leftWake.position.set(-0.95, 0.16, 5.4);
-  wakeGroup.add(leftWake);
+  const sprayPoints = new THREE.Points(sprayGeo, sprayMat);
+  sprayPoints.renderOrder = 3;
+  sprayPoints.frustumCulled = false;
+  scene.add(sprayPoints);
 
-  const rightWake = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 4.8), wakeMat.clone());
-  rightWake.rotation.x = -Math.PI / 2;
-  rightWake.rotation.z = 0.22;
-  rightWake.position.set(0.95, 0.16, 5.4);
-  wakeGroup.add(rightWake);
+  let smoothTurn = 0;
+  let flowOffset = 0;
 
-  const centerWake = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.85, 16), wakeMat.clone());
-  centerWake.rotation.x = -Math.PI / 2;
-  centerWake.position.set(0, 0.15, 3.6);
-  wakeGroup.add(centerWake);
+  function updateRibbon(data, mat, boatX, boatZ, cosY, sinY, elapsed, intensity, spineFn) {
+    const { geo, positions, lenSegs, wSegs } = data;
+    mat.uniforms.uTime.value = elapsed;
+    mat.uniforms.uFlow.value = flowOffset;
+    mat.uniforms.uIntensity.value = intensity;
 
-  return { wakeGroup, wakeMeshes: [leftWake, rightWake, centerWake] };
+    if (intensity <= 0.01) return;
+
+    let ptr = 0;
+    for (let i = 0; i <= lenSegs; i++) {
+      const t = i / lenSegs;
+      const { cx, cz, halfW } = spineFn(t);
+      for (let j = 0; j <= wSegs; j++) {
+        const u = j / wSegs;
+        const lx = cx + (u - 0.5) * 2 * halfW;
+        const lz = cz;
+        const wx = boatX + lx * cosY + lz * sinY;
+        const wz = boatZ - lx * sinY + lz * cosY;
+        const wy = getWaveHeight(wx, wz, elapsed) + 0.055;
+
+        const idx3 = ptr * 3;
+        positions[idx3] = wx;
+        positions[idx3 + 1] = wy;
+        positions[idx3 + 2] = wz;
+        ptr++;
+      }
+    }
+    geo.attributes.position.needsUpdate = true;
+  }
+
+  return {
+    update(dt, elapsed, boatState, speedRatio, steerInput) {
+      const speedSign = boatState.speed < -0.3 ? -1 : 1;
+      const targetTurn = steerInput * speedSign * Math.min(1, speedRatio * 1.4);
+      smoothTurn = THREE.MathUtils.lerp(smoothTurn, targetTurn, Math.min(1, dt * 4.5));
+      flowOffset += (0.8 + Math.abs(boatState.speed) * 0.42) * dt;
+
+      const sinY = Math.sin(boatState.yaw);
+      const cosY = Math.cos(boatState.yaw);
+      const activeWake = speedRatio > 0.025;
+      const stretch = 0.55 + speedRatio * 0.72;
+      const sternIntensity = activeWake ? Math.min(1, 0.25 + speedRatio * 0.85) : 0;
+      const vIntensity = activeWake ? Math.min(1, 0.18 + speedRatio * 0.82) : 0;
+
+      sternWashMesh.visible = activeWake;
+      leftWakeMesh.visible = activeWake;
+      rightWakeMesh.visible = activeWake;
+
+      if (activeWake) {
+        updateRibbon(
+          sternData,
+          sternMat,
+          boatState.x,
+          boatState.z,
+          cosY,
+          sinY,
+          elapsed,
+          sternIntensity,
+          (t) => ({
+            cx: -smoothTurn * 1.65 * t * t,
+            cz: 2.65 + (14.5 - 2.65) * stretch * t,
+            halfW: (0.75 + 2.10 * Math.pow(t, 0.85)) * (0.55 + speedRatio * 0.55) * 0.5,
+          })
+        );
+
+        for (const [data, mat, side] of [
+          [leftData, leftMat, -1],
+          [rightData, rightMat, 1],
+        ]) {
+          updateRibbon(
+            data,
+            mat,
+            boatState.x,
+            boatState.z,
+            cosY,
+            sinY,
+            elapsed,
+            vIntensity,
+            (t) => ({
+              cx: side * (0.42 + (3.45 - 0.42) * Math.pow(t, 0.92)) - smoothTurn * 1.65 * t * t,
+              cz: -2.35 + (12.5 - -2.35) * stretch * t,
+              halfW: (0.38 + 0.97 * t) * (0.55 + speedRatio * 0.55) * 0.5,
+            })
+          );
+        }
+      }
+
+      let anyAlive = false;
+      for (let i = 0; i < SPRAY_COUNT; i++) {
+        if (sprayLife[i] > 0) {
+          sprayVx[i] *= 1 - 0.6 * dt;
+          sprayVz[i] *= 1 - 0.6 * dt;
+          sprayVy[i] -= 9.2 * dt;
+
+          const i3 = i * 3;
+          const px = sprayPositions[i3] + sprayVx[i] * dt;
+          const py = sprayPositions[i3 + 1] + sprayVy[i] * dt;
+          const pz = sprayPositions[i3 + 2] + sprayVz[i] * dt;
+          sprayLife[i] -= dt;
+
+          const surfY = getWaveHeight(px, pz, elapsed);
+          if (sprayLife[i] <= 0 || (py <= surfY && sprayVy[i] < 0)) {
+            sprayLife[i] = 0;
+            sprayAlphas[i] = 0;
+          } else {
+            sprayPositions[i3] = px;
+            sprayPositions[i3 + 1] = py;
+            sprayPositions[i3 + 2] = pz;
+            const normAge = 1 - sprayLife[i] / sprayMaxLife[i];
+            sprayAlphas[i] = Math.sin(normAge * Math.PI) * (0.35 + speedRatio * 0.65);
+            anyAlive = true;
+          }
+        } else if (speedRatio > 0.03 && Math.random() < speedRatio * 0.38 + 0.04) {
+          const isBow = Math.random() < 0.45;
+          const sideSign = Math.random() < 0.5 ? -1 : 1;
+          let lx;
+          let lz;
+          let lvX;
+          let lvY;
+          let lvZ;
+
+          if (isBow) {
+            lx = sideSign * (0.45 + Math.random() * 0.5);
+            lz = -3.2 + Math.random() * 1.6;
+            lvX = sideSign * (1.2 + Math.random() * 1.6) * (0.4 + speedRatio * 0.7);
+            lvY = (1.6 + Math.random() * 2.2) * (0.45 + speedRatio * 0.85);
+            lvZ = -boatState.speed * 0.25 + (Math.random() - 0.3) * 1.1;
+          } else {
+            lx = (Math.random() - 0.5) * 1.7 - steerInput * 0.25;
+            lz = 2.75 + Math.random() * 0.6;
+            lvX = (Math.random() - 0.5) * 1.8 - steerInput * 1.1;
+            lvY = (1.4 + Math.random() * 2.4) * (0.4 + speedRatio * 0.9);
+            lvZ = (0.8 + Math.random() * 1.5) * (0.4 + speedRatio * 0.8);
+          }
+
+          const wx = boatState.x + lx * cosY + lz * sinY;
+          const wz = boatState.z - lx * sinY + lz * cosY;
+          const wy = getWaveHeight(wx, wz, elapsed) + 0.06;
+
+          const i3 = i * 3;
+          sprayPositions[i3] = wx;
+          sprayPositions[i3 + 1] = wy;
+          sprayPositions[i3 + 2] = wz;
+
+          sprayVx[i] = lvX * cosY + lvZ * sinY;
+          sprayVz[i] = -lvX * sinY + lvZ * cosY;
+          sprayVy[i] = lvY;
+
+          const ml = 0.45 + Math.random() * 0.45;
+          sprayMaxLife[i] = ml;
+          sprayLife[i] = ml;
+          spraySizes[i] = 0.28 + Math.random() * 0.36 + speedRatio * 0.22;
+          sprayAlphas[i] = 0.2;
+          anyAlive = true;
+        }
+      }
+
+      sprayPoints.visible = anyAlive || speedRatio > 0.03;
+      if (sprayPoints.visible) {
+        sprayGeo.attributes.position.needsUpdate = true;
+        sprayGeo.attributes.aSize.needsUpdate = true;
+        sprayGeo.attributes.aAlpha.needsUpdate = true;
+      }
+    },
+
+    setColors(foamColor, waterTint) {
+      for (const mat of [sternMat, leftMat, rightMat]) {
+        mat.uniforms.uFoamColor.value.copy(foamColor);
+        mat.uniforms.uWaterTint.value.copy(waterTint);
+      }
+      sprayMat.uniforms.uFoamColor.value.copy(foamColor);
+    },
+
+    reset() {
+      smoothTurn = 0;
+      flowOffset = 0;
+      sternWashMesh.visible = false;
+      leftWakeMesh.visible = false;
+      rightWakeMesh.visible = false;
+      sprayPoints.visible = false;
+      sprayLife.fill(0);
+      sprayAlphas.fill(0);
+      sprayGeo.attributes.aAlpha.needsUpdate = true;
+    },
+  };
 }
 
 /**
@@ -1920,8 +2248,7 @@ async function init() {
   bowLight.position.set(0, 1.55, -3.05);
   boatGroup.add(bowLight);
 
-  const { wakeGroup, wakeMeshes } = createWakeGroup();
-  boatGroup.add(wakeGroup);
+  const boatWake = createBoatWakeSystem(scene);
 
   boatGroup.position.set(INITIAL_BOAT_POS.x, 0, INITIAL_BOAT_POS.z);
   boatGroup.rotation.y = INITIAL_BOAT_POS.yaw;
@@ -2050,6 +2377,7 @@ async function init() {
     for (const gm of lanternGlassMats) {
       gm.emissiveIntensity = 0.5 + nightFactor * 1.6;
     }
+    boatWake.setColors(preset.foamColor, preset.shallowOcean);
   }
 
   function resetBoat() {
@@ -2062,6 +2390,7 @@ async function init() {
     boatState.zone = 'Teluk Terbuka';
     boatGroup.position.set(boatState.x, getWaveHeight(boatState.x, boatState.z, 0) + 0.12, boatState.z);
     boatGroup.rotation.set(0, boatState.yaw, 0);
+    boatWake.reset();
 
     if (cameraMode === 'follow') {
       controls.target.set(boatState.x, 1.5, boatState.z);
@@ -2397,11 +2726,7 @@ async function init() {
     }
 
     const speedRatio = Math.min(1, Math.abs(boatState.speed) / maxForward);
-    wakeGroup.visible = speedRatio > 0.04;
-    wakeGroup.scale.set(0.65 + speedRatio * 0.55, 1, 0.5 + speedRatio * 1.15);
-    wakeMeshes.forEach((wm, idx) => {
-      wm.material.opacity = (idx === 2 ? 0.35 : 0.48) * speedRatio;
-    });
+    boatWake.update(dt, elapsed, boatState, speedRatio, steerInput);
 
     // Follow camera smoothly moves with boat delta
     if (cameraMode === 'follow') {

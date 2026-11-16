@@ -745,6 +745,239 @@ function createHullWaterMask() {
 }
 
 /**
+ * Equip lighthouse.glb meshes with cylindrical masonry UVs, stone/copper/iron PBR materials,
+ * glowing internal Fresnel optic, and transparent lantern glass.
+ */
+function prepareLighthouseAsset(lighthouseAsset) {
+  if (!lighthouseAsset) return;
+  const twoPi = Math.PI * 2;
+  const masonryNormalMap = buildPeriodicNormalTexture(
+    256,
+    (u, v) => {
+      const course = -Math.pow(Math.abs(Math.sin(twoPi * 6 * v)), 18) * 0.45;
+      const grain =
+        Math.sin(twoPi * (7 * u + 3 * v)) * 0.22 +
+        Math.cos(twoPi * (13 * u - 11 * v)) * 0.16 +
+        Math.sin(twoPi * (23 * u + 19 * v)) * 0.11 +
+        Math.cos(twoPi * (37 * u - 29 * v)) * 0.07;
+      return course + grain;
+    },
+    1.75
+  );
+
+  const stoneNames = new Set(['LHFoundation', 'LHGalleryAndCorbels', 'LHDoorAndWindows']);
+  const ironNames = new Set(['LHRailing', 'LHLanternRoomFrame']);
+
+  lighthouseAsset.traverse((child) => {
+    if (!child.isMesh || !child.geometry) return;
+    const geo = child.geometry;
+    const hasVCol = Boolean(geo.attributes.color);
+
+    if (child.name === 'LighthouseGlass') {
+      child.material = new THREE.MeshPhysicalMaterial({
+        color: '#e8f4fb',
+        transparent: true,
+        opacity: 0.32,
+        roughness: 0.08,
+        metalness: 0.05,
+        transmission: 0.45,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.06,
+        emissive: new THREE.Color('#ffcf70'),
+        emissiveIntensity: 0.25,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      child.castShadow = false;
+      child.receiveShadow = false;
+      return;
+    }
+
+    if (child.name === 'LHFresnelOptic') {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        roughness: 0.16,
+        metalness: 0.32,
+        emissive: new THREE.Color('#ffbd4a'),
+        emissiveIntensity: 1.4,
+        envMapIntensity: 1.2,
+      });
+      child.castShadow = false;
+      child.receiveShadow = false;
+      return;
+    }
+
+    const pos = geo.attributes.position;
+    if (pos) {
+      const uvs = new Float32Array(pos.count * 2);
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i);
+        const vy = pos.getY(i);
+        const vz = pos.getZ(i);
+        uvs[i * 2] = (vx + vz) * 0.44;
+        uvs[i * 2 + 1] = vy * 0.46;
+      }
+      geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    }
+
+    if (ironNames.has(child.name)) {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        roughness: 0.42,
+        metalness: 0.78,
+        envMapIntensity: 0.95,
+      });
+    } else if (child.name === 'LHCupolaAndVane') {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        normalMap: masonryNormalMap,
+        normalScale: new THREE.Vector2(0.22, 0.22),
+        roughness: 0.42,
+        metalness: 0.55,
+        envMapIntensity: 0.95,
+      });
+    } else if (stoneNames.has(child.name)) {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        normalMap: masonryNormalMap,
+        normalScale: new THREE.Vector2(0.74, 0.74),
+        roughness: 0.88,
+        metalness: 0.04,
+        envMapIntensity: 0.52,
+      });
+    } else {
+      child.material = new THREE.MeshStandardMaterial({
+        vertexColors: hasVCol,
+        normalMap: masonryNormalMap,
+        normalScale: new THREE.Vector2(0.56, 0.56),
+        roughness: 0.72,
+        metalness: 0.04,
+        envMapIntensity: 0.58,
+      });
+    }
+
+    child.castShadow = true;
+    child.receiveShadow = true;
+  });
+}
+
+/**
+ * Create a soft volumetric light beam cone with smooth axial distance falloff and silhouette edge fade.
+ */
+function createSoftBeamCone(radius, length, radialSegs, heightSegs, baseColorHex, baseOpacity) {
+  const startZ = 0.34;
+  const geo = new THREE.CylinderGeometry(0.22, radius, length, radialSegs, heightSegs, true);
+  geo.translate(0, -length * 0.5, 0);
+  geo.rotateX(-Math.PI * 0.5);
+  geo.translate(0, 0, startZ);
+
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const v = THREE.MathUtils.clamp((pos.getZ(i) - startZ) / length, 0, 1);
+    const alpha = Math.pow(1 - v, 1.85) * THREE.MathUtils.smoothstep(v, 0.0, 0.09);
+    colors[i * 3] = alpha;
+    colors[i * 3 + 1] = alpha;
+    colors[i * 3 + 2] = alpha;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(baseColorHex) },
+      uOpacity: { value: baseOpacity },
+      uTime: { value: 0 },
+    },
+    vertexShader: `
+      attribute vec3 color;
+      varying float vFalloff;
+      varying vec3 vViewPos;
+      varying vec3 vViewNormal;
+      varying vec2 vBeamUv;
+      void main() {
+        vFalloff = color.r;
+        vBeamUv = uv;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vViewPos = -mvPosition.xyz;
+        vViewNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      uniform float uTime;
+      varying float vFalloff;
+      varying vec3 vViewPos;
+      varying vec3 vViewNormal;
+      varying vec2 vBeamUv;
+      void main() {
+        vec3 N = normalize(vViewNormal);
+        vec3 V = normalize(vViewPos);
+        float silhouette = pow(abs(dot(V, N)), 1.65);
+        float mist = 0.88 + 0.12 * sin(vBeamUv.y * 14.0 - uTime * 1.3 + sin(vBeamUv.x * 6.28318) * 2.0);
+        float alpha = clamp(uOpacity * vFalloff * silhouette * mist, 0.0, 1.0);
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 4;
+  mesh.userData = { baseOpacity, kind: 'cone' };
+  return mesh;
+}
+
+/**
+ * Create a soft additive radial glow / star-glint disc for lighthouse Fresnel lens apertures.
+ */
+function createLensHaloDisc(size, colorHex, baseOpacity) {
+  const geo = new THREE.PlaneGeometry(size, size);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(colorHex) },
+      uOpacity: { value: baseOpacity },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv * 2.0 - 1.0;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying vec2 vUv;
+      void main() {
+        float r = length(vUv);
+        float core = exp(-r * r * 5.2);
+        float halo = pow(max(0.0, 1.0 - r), 2.8) * 0.65;
+        float rays = exp(-abs(vUv.x) * 14.0) * exp(-abs(vUv.y) * 2.4) * 0.45
+                   + exp(-abs(vUv.y) * 14.0) * exp(-abs(vUv.x) * 2.4) * 0.35;
+        float alpha = clamp((core + halo + rays) * step(r, 1.0) * uOpacity, 0.0, 1.0);
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 4;
+  mesh.userData = { baseOpacity, kind: 'halo' };
+  return mesh;
+}
+
+/**
  * Compute natural island elevation at local island coordinates (lx, lz).
  */
 function getIslandElevation(lx, lz) {
@@ -778,7 +1011,7 @@ async function loadBlenderAssets() {
   const loadOne = (name) =>
     new Promise((resolve, reject) => {
       loader.load(
-        `./assets/models/${name}.glb?v=4`,
+        `./assets/models/${name}.glb?v=5`,
         (gltf) => {
           gltf.scene.traverse((child) => {
             if (child.isMesh) {
@@ -1350,7 +1583,8 @@ async function init() {
     }
   }
 
-  // 4. Coastal Lighthouse with Rotating Beacon
+  // 4. Coastal Lighthouse with Fresnel Optic & Volumetric Sweeping Beacon
+  prepareLighthouseAsset(assets.lighthouse);
   const lighthouseGroup = new THREE.Group();
   const lhX = -10.5;
   const lhZ = -31;
@@ -1360,26 +1594,59 @@ async function init() {
 
   const lighthouseGlass = assets.lighthouse.getObjectByName('LighthouseGlass');
   const lanternRoomMat = lighthouseGlass ? lighthouseGlass.material : null;
+  const fresnelOpticObj = assets.lighthouse.getObjectByName('LHFresnelOptic');
+  const fresnelOpticMat = fresnelOpticObj ? fresnelOpticObj.material : null;
 
   const beaconGroup = new THREE.Group();
-  beaconGroup.position.y = 10.6;
+  beaconGroup.position.y = 10.62;
   const beaconLight = new THREE.PointLight('#ffd269', 0.2, 55, 1.5);
   beaconGroup.add(beaconLight);
 
-  const beamMat = new THREE.MeshBasicMaterial({
-    color: '#ffe699',
-    transparent: true,
-    opacity: 0.16,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-  const beamGeo = new THREE.ConeGeometry(3.8, 26, 14, 1, true);
-  beamGeo.translate(0, -13, 0);
-  beamGeo.rotateX(Math.PI / 2);
-  const beamMesh = new THREE.Mesh(beamGeo, beamMat);
-  beaconGroup.add(beamMesh);
+  const beaconSpotLight = new THREE.SpotLight('#ffd885', 0.4, 95, Math.PI * 0.16, 0.82, 1.3);
+  beaconSpotLight.castShadow = false;
+  const beaconSpotTarget = new THREE.Object3D();
+  beaconSpotTarget.position.set(0, -3.2, 28);
+  beaconSpotLight.target = beaconSpotTarget;
+  beaconGroup.add(beaconSpotLight);
+  beaconGroup.add(beaconSpotTarget);
+
+  const fwdBeamArm = new THREE.Group();
+  fwdBeamArm.rotation.x = 0.105;
+  const fwdCoreCone = createSoftBeamCone(2.1, 34, 24, 24, '#ffebb3', 0.34);
+  const fwdHazeCone = createSoftBeamCone(5.2, 44, 24, 24, '#ffd27a', 0.14);
+  const fwdLensHalo = createLensHaloDisc(1.5, '#ffe7a0', 0.65);
+  fwdLensHalo.position.set(0, 0, 0.46);
+  fwdBeamArm.add(fwdCoreCone, fwdHazeCone, fwdLensHalo);
+  beaconGroup.add(fwdBeamArm);
+
+  const backBeamYaw = new THREE.Group();
+  backBeamYaw.rotation.y = Math.PI;
+  const backBeamArm = new THREE.Group();
+  backBeamArm.rotation.x = 0.095;
+  const backCoreCone = createSoftBeamCone(1.7, 26, 20, 20, '#ffebb3', 0.24);
+  const backHazeCone = createSoftBeamCone(4.0, 34, 20, 20, '#ffd27a', 0.10);
+  const backLensHalo = createLensHaloDisc(1.25, '#ffe7a0', 0.48);
+  backLensHalo.position.set(0, 0, 0.46);
+  backBeamArm.add(backCoreCone, backHazeCone, backLensHalo);
+  backBeamYaw.add(backBeamArm);
+  beaconGroup.add(backBeamYaw);
+
+  const beaconFlashDisc = createLensHaloDisc(3.2, '#ffe8aa', 0.85);
   lighthouseGroup.add(beaconGroup);
+  beaconFlashDisc.position.set(0, 10.62, 0);
+  lighthouseGroup.add(beaconFlashDisc);
   scene.add(lighthouseGroup);
+
+  const beamLayers = [
+    fwdCoreCone,
+    fwdHazeCone,
+    fwdLensHalo,
+    backCoreCone,
+    backHazeCone,
+    backLensHalo,
+  ];
+  const beaconWorldPos = new THREE.Vector3(lhX, lhBaseY - 0.1 + 10.62, lhZ);
+  let currentBeamScale = 0.06;
 
   // 5. Beach Umbrella & Lounger Sets
   const beachSpots = [
@@ -1570,10 +1837,19 @@ async function init() {
       lanternBulbMat.emissiveIntensity = 0.6 + nightFactor * 1.6;
     }
     if (lanternRoomMat) {
-      lanternRoomMat.emissiveIntensity = 0.5 + nightFactor * 1.8;
+      lanternRoomMat.emissiveIntensity = 0.22 + nightFactor * 0.55;
     }
-    beamMat.opacity = key === 'night' ? 0.28 : key === 'sunset' ? 0.18 : 0.03;
+    if (fresnelOpticMat) {
+      fresnelOpticMat.emissiveIntensity = 0.75 + nightFactor * 2.2;
+    }
+    currentBeamScale = key === 'night' ? 1.0 : key === 'sunset' ? 0.62 : 0.06;
+    for (const layer of beamLayers) {
+      layer.material.uniforms.uOpacity.value = layer.userData.baseOpacity * currentBeamScale;
+    }
+    beaconFlashDisc.material.uniforms.uOpacity.value =
+      beaconFlashDisc.userData.baseOpacity * currentBeamScale * 0.22;
     beaconLight.intensity = preset.beaconIntensity;
+    beaconSpotLight.intensity = preset.beaconIntensity * (key === 'night' ? 7.5 : key === 'sunset' ? 4.2 : 0.3);
 
     for (const pl of pierLanternLights) {
       pl.intensity = preset.lanternIntensity;
@@ -1970,7 +2246,31 @@ async function init() {
         }
       }
 
-      beaconGroup.rotation.y = elapsed * 0.7;
+      const beaconAngle = elapsed * 0.65;
+      beaconGroup.rotation.y = beaconAngle;
+      if (fresnelOpticObj) {
+        fresnelOpticObj.rotation.y = beaconAngle;
+      }
+
+      const dxCam = camera.position.x - beaconWorldPos.x;
+      const dzCam = camera.position.z - beaconWorldPos.z;
+      const invCamLen = 1 / (Math.hypot(dxCam, dzCam) || 1);
+      const beamAlign = Math.abs(
+        Math.sin(beaconAngle) * (dxCam * invCamLen) + Math.cos(beaconAngle) * (dzCam * invCamLen)
+      );
+      const flashFactor = Math.pow(beamAlign, 12.0);
+      for (const layer of beamLayers) {
+        const uniforms = layer.material.uniforms;
+        if (uniforms.uTime) {
+          uniforms.uTime.value = elapsed;
+        }
+        uniforms.uOpacity.value =
+          layer.userData.baseOpacity * currentBeamScale * (1.0 + flashFactor * 0.25);
+      }
+      beaconFlashDisc.lookAt(camera.position);
+      beaconFlashDisc.material.uniforms.uOpacity.value =
+        beaconFlashDisc.userData.baseOpacity * currentBeamScale * (0.22 + flashFactor * 1.15);
+      beaconFlashDisc.scale.setScalar(0.85 + flashFactor * 0.65);
 
       const flicker = 0.85 + Math.sin(elapsed * 14) * 0.1 + Math.cos(elapsed * 23) * 0.08;
       if (flameMesh) {

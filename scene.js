@@ -1161,18 +1161,17 @@ function prepareCampAndBeachAssets(beachSetAsset, campfireAsset, tentAsset, coco
     coconutAsset.traverse((child) => {
       if (!child.isMesh || !child.geometry) return;
       const hasVCol = Boolean(child.geometry.attributes.color);
-      applyUVs(child.geometry, 1.4, 1.4);
-      const isSplit = child.name === 'SplitCoconutHalves';
-      const isSand = child.name === 'CoconutSandAndHusks';
+      applyUVs(child.geometry, 1.8, 1.8);
+      const isYoung = child.name === 'CoconutYoung';
       child.material = new THREE.MeshStandardMaterial({
         vertexColors: hasVCol,
         normalMap: woodNormalMap,
-        normalScale: new THREE.Vector2(isSplit ? 0.35 : 0.62, isSplit ? 0.35 : 0.62),
-        roughness: isSplit ? 0.42 : isSand ? 0.86 : 0.64,
+        normalScale: new THREE.Vector2(isYoung ? 0.24 : 0.72, isYoung ? 0.24 : 0.72),
+        roughness: isYoung ? 0.42 : 0.84,
         metalness: 0.02,
-        envMapIntensity: isSplit ? 0.62 : 0.48,
+        envMapIntensity: isYoung ? 0.65 : 0.45,
       });
-      child.castShadow = !isSand;
+      child.castShadow = true;
       child.receiveShadow = true;
     });
   }
@@ -1202,7 +1201,7 @@ async function loadBlenderAssets() {
   const loadOne = (name) =>
     new Promise((resolve, reject) => {
       loader.load(
-        `./assets/models/${name}.glb?v=9`,
+        `./assets/models/${name}.glb?v=10`,
         (gltf) => {
           gltf.scene.traverse((child) => {
             if (child.isMesh) {
@@ -2386,22 +2385,33 @@ async function init() {
     palmTrees.push(tree);
   }
 
-  // Fallen Coconut Clusters beneath coastal palm trees and along beach sand
+  // Single Fallen Coconuts (mix of young green and mature brown) scattered across beach sand & palm bases
+  const youngCoconutMesh = assets.coconut ? assets.coconut.getObjectByName('CoconutYoung') : null;
+  const oldCoconutMesh = assets.coconut ? assets.coconut.getObjectByName('CoconutOld') : null;
   const coconutPlacements = [
-    { x: -2.6, z: -20.2, rot: 0.4, s: 1.08 },
-    { x: -6.2, z: -22.3, rot: 1.8, s: 1.12 },
-    { x: 2.1, z: -19.8, rot: -0.7, s: 1.04 },
-    { x: 4.8, z: -23.8, rot: 2.4, s: 1.10 },
-    { x: -9.8, z: -21.2, rot: -1.3, s: 0.98 },
-    { x: 10.1, z: -21.4, rot: 0.9, s: 1.05 },
-    { x: -0.9, z: -25.6, rot: 2.9, s: 1.00 },
+    { x: -2.4, z: -20.1, rot: 0.5, tilt: 0.12, s: 1.05, type: 'young' },
+    { x: -3.3, z: -21.2, rot: 2.1, tilt: -0.15, s: 0.98, type: 'old' },
+    { x: -5.9, z: -22.4, rot: 1.4, tilt: 0.10, s: 1.08, type: 'young' },
+    { x: -4.8, z: -23.9, rot: -0.8, tilt: 0.18, s: 1.00, type: 'old' },
+    { x: 1.9, z: -19.7, rot: -0.6, tilt: -0.10, s: 1.04, type: 'old' },
+    { x: 3.0, z: -21.1, rot: 1.9, tilt: 0.14, s: 0.96, type: 'young' },
+    { x: 4.9, z: -24.2, rot: 2.5, tilt: -0.12, s: 1.06, type: 'young' },
+    { x: 3.8, z: -25.8, rot: 0.3, tilt: 0.16, s: 1.02, type: 'old' },
+    { x: -10.6, z: -21.3, rot: -1.2, tilt: 0.11, s: 1.00, type: 'old' },
+    { x: -11.9, z: -22.6, rot: 0.8, tilt: -0.14, s: 1.05, type: 'young' },
+    { x: 9.8, z: -21.6, rot: 1.1, tilt: 0.15, s: 1.02, type: 'young' },
+    { x: -0.8, z: -26.8, rot: 2.8, tilt: -0.12, s: 0.98, type: 'old' },
   ];
   for (const c of coconutPlacements) {
+    const src = c.type === 'young' ? youngCoconutMesh : oldCoconutMesh;
+    if (!src) continue;
     const cy = getIslandElevation(c.x - ISLAND_CENTER.x, c.z - ISLAND_CENTER.y);
-    const coco = assets.coconut.clone(true);
-    coco.position.set(c.x, cy + 0.015, c.z);
+    const coco = src.clone(true);
+    coco.position.set(c.x, cy + 0.095, c.z);
     coco.scale.setScalar(c.s);
-    coco.rotation.copy(getIslandSlopeEuler(c.x, c.z, c.rot, 0.55));
+    coco.rotation.copy(getIslandSlopeEuler(c.x, c.z, c.rot, 0.65));
+    coco.rotation.x += c.tilt;
+    coco.rotation.z += c.tilt * 0.6;
     scene.add(coco);
   }
 

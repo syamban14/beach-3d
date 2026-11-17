@@ -31,21 +31,33 @@
       <a href="#ocean-canvas" class="brand-wordmark">Teluk Senja</a>
 
       <div class="nav-controls">
-        <fieldset class="segmented-control" role="radiogroup" aria-label="Waktu pencahayaan">
-          <legend class="sr-only">Waktu pencahayaan</legend>
-          <label class="segment-option">
-            <input type="radio" name="time-of-day" value="day" checked />
-            <span>Siang</span>
-          </label>
-          <label class="segment-option">
-            <input type="radio" name="time-of-day" value="sunset" />
-            <span>Senja</span>
-          </label>
-          <label class="segment-option">
-            <input type="radio" name="time-of-day" value="night" />
-            <span>Malam</span>
-          </label>
-        </fieldset>
+        <div class="time-control-group">
+          <fieldset class="segmented-control" role="radiogroup" aria-label="Waktu pencahayaan">
+            <legend class="sr-only">Waktu pencahayaan</legend>
+            <label class="segment-option">
+              <input type="radio" name="time-of-day" value="auto" checked />
+              <span>Otomatis</span>
+            </label>
+            <label class="segment-option">
+              <input type="radio" name="time-of-day" value="day" />
+              <span>Siang</span>
+            </label>
+            <label class="segment-option">
+              <input type="radio" name="time-of-day" value="sunset" />
+              <span>Senja</span>
+            </label>
+            <label class="segment-option">
+              <input type="radio" name="time-of-day" value="night" />
+              <span>Malam</span>
+            </label>
+          </fieldset>
+
+          <div class="clock-pill" id="clock-pill" aria-live="polite" title="Waktu lokal perangkat">
+            <span class="clock-dot" aria-hidden="true"></span>
+            <span class="clock-time" id="local-clock-value">--:--</span>
+            <span class="clock-phase" id="local-phase-value">Otomatis</span>
+          </div>
+        </div>
 
         <fieldset class="segmented-control" role="radiogroup" aria-label="Mode kamera">
           <legend class="sr-only">Mode kamera</legend>
@@ -110,6 +122,6 @@
       </nav>
     </main>
 
-    <script type="module" src="./scene.js?v=10"></script>
+    <script type="module" src="./scene.js?v=11"></script>
   </body>
 </html>

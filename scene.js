@@ -24,10 +24,13 @@ const TIME_PRESETS = {
     shallowOcean: new THREE.Color('#1996ad'),
     foamColor: new THREE.Color('#ecf8ff'),
     starOpacity: 0.0,
-    lanternIntensity: 0.25,
-    beaconIntensity: 0.2,
-    campfireIntensity: 0.8,
+    lanternIntensity: 0.0,
+    beaconIntensity: 0.0,
+    campfireIntensity: 0.0,
+    lightActivation: 0.0,
+    fireActivation: 0.0,
     exposure: 1.05,
+    phaseLabel: 'Siang',
   },
   sunset: {
     sky: new THREE.Color('#d97a54'),
@@ -47,7 +50,10 @@ const TIME_PRESETS = {
     lanternIntensity: 3.4,
     beaconIntensity: 2.8,
     campfireIntensity: 3.2,
+    lightActivation: 0.8,
+    fireActivation: 0.88,
     exposure: 1.0,
+    phaseLabel: 'Senja',
   },
   night: {
     sky: new THREE.Color('#071324'),
@@ -67,9 +73,287 @@ const TIME_PRESETS = {
     lanternIntensity: 6.2,
     beaconIntensity: 5.5,
     campfireIntensity: 5.2,
+    lightActivation: 1.0,
+    fireActivation: 1.0,
     exposure: 1.15,
+    phaseLabel: 'Malam',
   },
 };
+
+function makeRealtimeKeyframe(hour, base, overrides = {}) {
+  return {
+    hour,
+    sky: new THREE.Color(overrides.sky || base.sky),
+    fog: new THREE.Color(overrides.fog || base.fog),
+    fogDensity: overrides.fogDensity ?? base.fogDensity,
+    sunPos: overrides.sunPos ? new THREE.Vector3(...overrides.sunPos) : base.sunPos.clone(),
+    sunColor: new THREE.Color(overrides.sunColor || base.sunColor),
+    sunIntensity: overrides.sunIntensity ?? base.sunIntensity,
+    hemiSky: new THREE.Color(overrides.hemiSky || base.hemiSky),
+    hemiGround: new THREE.Color(overrides.hemiGround || base.hemiGround),
+    hemiIntensity: overrides.hemiIntensity ?? base.hemiIntensity,
+    deepOcean: new THREE.Color(overrides.deepOcean || base.deepOcean),
+    midOcean: new THREE.Color(overrides.midOcean || base.midOcean),
+    shallowOcean: new THREE.Color(overrides.shallowOcean || base.shallowOcean),
+    foamColor: new THREE.Color(overrides.foamColor || base.foamColor),
+    starOpacity: overrides.starOpacity ?? base.starOpacity,
+    lanternIntensity: overrides.lanternIntensity ?? base.lanternIntensity,
+    beaconIntensity: overrides.beaconIntensity ?? base.beaconIntensity,
+    campfireIntensity: overrides.campfireIntensity ?? base.campfireIntensity,
+    lightActivation: overrides.lightActivation ?? base.lightActivation,
+    fireActivation: overrides.fireActivation ?? base.fireActivation,
+    exposure: overrides.exposure ?? base.exposure,
+  };
+}
+
+const REALTIME_KEYFRAMES = [
+  makeRealtimeKeyframe(0.0, TIME_PRESETS.night),
+  makeRealtimeKeyframe(4.5, TIME_PRESETS.night),
+  makeRealtimeKeyframe(5.2, TIME_PRESETS.night, {
+    sky: '#1d2b4f',
+    fog: '#303b5c',
+    fogDensity: 0.0056,
+    sunPos: [56, 22, -88],
+    sunColor: '#c9c4eb',
+    sunIntensity: 0.65,
+    hemiSky: '#435580',
+    hemiGround: '#141b2e',
+    hemiIntensity: 0.58,
+    starOpacity: 0.65,
+    lanternIntensity: 4.8,
+    beaconIntensity: 4.2,
+    campfireIntensity: 4.0,
+    lightActivation: 0.85,
+    fireActivation: 0.85,
+    exposure: 1.08,
+  }),
+  makeRealtimeKeyframe(5.5, TIME_PRESETS.night, {
+    sky: '#4b4b75',
+    fog: '#6e5c78',
+    fogDensity: 0.0053,
+    sunPos: [68, -6, -88],
+    sunColor: '#e8aa84',
+    sunIntensity: 0.55,
+    hemiSky: '#6b678f',
+    hemiGround: '#242336',
+    hemiIntensity: 0.64,
+    starOpacity: 0.35,
+    lanternIntensity: 3.2,
+    beaconIntensity: 2.6,
+    campfireIntensity: 2.8,
+    lightActivation: 0.55,
+    fireActivation: 0.6,
+    exposure: 1.04,
+  }),
+  makeRealtimeKeyframe(5.85, TIME_PRESETS.sunset, {
+    sky: '#df8c68',
+    fog: '#d89275',
+    fogDensity: 0.005,
+    sunPos: [76, 12, -88],
+    sunColor: '#ffa964',
+    sunIntensity: 1.85,
+    hemiSky: '#ffbf8f',
+    hemiGround: '#59424d',
+    hemiIntensity: 0.82,
+    deepOcean: '#0b2542',
+    midOcean: '#174d6e',
+    shallowOcean: '#29838f',
+    foamColor: '#ffead8',
+    starOpacity: 0.08,
+    lanternIntensity: 1.2,
+    beaconIntensity: 0.9,
+    campfireIntensity: 1.0,
+    lightActivation: 0.2,
+    fireActivation: 0.25,
+    exposure: 1.02,
+  }),
+  makeRealtimeKeyframe(6.25, TIME_PRESETS.day, {
+    sky: '#8ccce8',
+    fog: '#b2dcf0',
+    fogDensity: 0.0044,
+    sunPos: [72, 28, -82],
+    sunColor: '#fff0c8',
+    sunIntensity: 2.15,
+    hemiSky: '#c6ecff',
+    hemiGround: '#d2b48c',
+    hemiIntensity: 0.98,
+    deepOcean: '#052440',
+    midOcean: '#0b5478',
+    shallowOcean: '#1c9bb3',
+    foamColor: '#f2fbff',
+    exposure: 1.04,
+  }),
+  makeRealtimeKeyframe(9.0, TIME_PRESETS.day, {
+    sunPos: [66, 52, -76],
+    sunColor: '#fff4d4',
+    sunIntensity: 2.3,
+    hemiIntensity: 1.03,
+  }),
+  makeRealtimeKeyframe(12.0, TIME_PRESETS.day),
+  makeRealtimeKeyframe(15.5, TIME_PRESETS.day, {
+    sky: '#85c3df',
+    fog: '#a5d4e8',
+    fogDensity: 0.0043,
+    sunPos: [-14, 46, -84],
+    sunColor: '#ffebc2',
+    sunIntensity: 2.35,
+    hemiSky: '#c2e6fb',
+    hemiIntensity: 1.0,
+    exposure: 1.04,
+  }),
+  makeRealtimeKeyframe(16.75, TIME_PRESETS.day, {
+    sky: '#99bfd4',
+    fog: '#bfa79c',
+    fogDensity: 0.0048,
+    sunPos: [-30, 29, -92],
+    sunColor: '#ffd494',
+    sunIntensity: 2.4,
+    hemiSky: '#ffd9ad',
+    hemiGround: '#8a6c68',
+    hemiIntensity: 0.92,
+    deepOcean: '#07223c',
+    midOcean: '#104968',
+    shallowOcean: '#20869a',
+    foamColor: '#fff1e0',
+    exposure: 1.02,
+  }),
+  makeRealtimeKeyframe(17.25, TIME_PRESETS.sunset, {
+    sky: '#c98765',
+    fog: '#c98368',
+    fogDensity: 0.0052,
+    sunPos: [-37, 21, -96],
+    sunColor: '#ffb16b',
+    sunIntensity: 2.55,
+    hemiSky: '#ffc28c',
+    hemiGround: '#594252',
+    hemiIntensity: 0.88,
+    deepOcean: '#0a223d',
+    midOcean: '#164666',
+    shallowOcean: '#287c8a',
+    foamColor: '#ffe7d4',
+    starOpacity: 0.12,
+    lanternIntensity: 1.8,
+    beaconIntensity: 1.5,
+    campfireIntensity: 1.8,
+    lightActivation: 0.45,
+    fireActivation: 0.55,
+    exposure: 1.01,
+  }),
+  makeRealtimeKeyframe(17.85, TIME_PRESETS.sunset),
+  makeRealtimeKeyframe(18.55, TIME_PRESETS.night, {
+    sky: '#2c3259',
+    fog: '#3d395c',
+    fogDensity: 0.006,
+    sunPos: [-48, 4, -102],
+    sunColor: '#ff8a47',
+    sunIntensity: 0.95,
+    hemiSky: '#584e7d',
+    hemiGround: '#1a1e33',
+    hemiIntensity: 0.65,
+    deepOcean: '#061930',
+    midOcean: '#0f3452',
+    shallowOcean: '#195c73',
+    foamColor: '#c2cde0',
+    starOpacity: 0.72,
+    lanternIntensity: 5.2,
+    beaconIntensity: 4.5,
+    campfireIntensity: 4.4,
+    lightActivation: 0.95,
+    fireActivation: 0.96,
+    exposure: 1.08,
+  }),
+  makeRealtimeKeyframe(18.75, TIME_PRESETS.night, {
+    sky: '#15203b',
+    fog: '#212945',
+    sunPos: [-50, -8, -102],
+    sunColor: '#ff7a3d',
+    sunIntensity: 0.35,
+    hemiSky: '#3b426b',
+    hemiGround: '#101629',
+    hemiIntensity: 0.58,
+    starOpacity: 0.86,
+    lanternIntensity: 5.8,
+    beaconIntensity: 5.1,
+    campfireIntensity: 4.9,
+    lightActivation: 0.98,
+    fireActivation: 0.99,
+    exposure: 1.12,
+  }),
+  makeRealtimeKeyframe(18.9, TIME_PRESETS.night, {
+    sky: '#0c172b',
+    fog: '#121f36',
+    sunPos: [46, -6, -84],
+    sunColor: '#c7dbff',
+    sunIntensity: 0.45,
+    hemiSky: '#2f456b',
+    hemiGround: '#0a1421',
+    hemiIntensity: 0.56,
+    starOpacity: 0.92,
+    lanternIntensity: 6.0,
+    beaconIntensity: 5.3,
+    campfireIntensity: 5.1,
+    exposure: 1.14,
+  }),
+  makeRealtimeKeyframe(19.35, TIME_PRESETS.night),
+  makeRealtimeKeyframe(24.0, TIME_PRESETS.night),
+];
+
+function createMutableTimeState() {
+  return makeRealtimeKeyframe(12.0, TIME_PRESETS.day);
+}
+
+function getSolarPhaseLabel(hour) {
+  const h = ((hour % 24) + 24) % 24;
+  if (h < 4.75 || h >= 19.0) return 'Malam';
+  if (h < 6.25) return 'Fajar';
+  if (h < 10.5) return 'Pagi';
+  if (h < 15.0) return 'Siang';
+  if (h < 16.9) return 'Sore';
+  return 'Senja';
+}
+
+/**
+ * Compute continuously interpolated atmosphere and light activation values for a 24-hour clock hour.
+ */
+function computeLightingStateForHour(hour, out = createMutableTimeState()) {
+  const h = ((hour % 24) + 24) % 24;
+  let k0 = REALTIME_KEYFRAMES[0];
+  let k1 = REALTIME_KEYFRAMES[REALTIME_KEYFRAMES.length - 1];
+  for (let i = 0; i < REALTIME_KEYFRAMES.length - 1; i++) {
+    if (h >= REALTIME_KEYFRAMES[i].hour && h <= REALTIME_KEYFRAMES[i + 1].hour) {
+      k0 = REALTIME_KEYFRAMES[i];
+      k1 = REALTIME_KEYFRAMES[i + 1];
+      break;
+    }
+  }
+  const span = k1.hour - k0.hour || 1;
+  const u = THREE.MathUtils.clamp((h - k0.hour) / span, 0, 1);
+  const t = u * u * (3 - 2 * u);
+
+  out.hour = h;
+  out.sky.copy(k0.sky).lerp(k1.sky, t);
+  out.fog.copy(k0.fog).lerp(k1.fog, t);
+  out.fogDensity = THREE.MathUtils.lerp(k0.fogDensity, k1.fogDensity, t);
+  out.sunPos.copy(k0.sunPos).lerp(k1.sunPos, t);
+  out.sunColor.copy(k0.sunColor).lerp(k1.sunColor, t);
+  out.sunIntensity = THREE.MathUtils.lerp(k0.sunIntensity, k1.sunIntensity, t);
+  out.hemiSky.copy(k0.hemiSky).lerp(k1.hemiSky, t);
+  out.hemiGround.copy(k0.hemiGround).lerp(k1.hemiGround, t);
+  out.hemiIntensity = THREE.MathUtils.lerp(k0.hemiIntensity, k1.hemiIntensity, t);
+  out.deepOcean.copy(k0.deepOcean).lerp(k1.deepOcean, t);
+  out.midOcean.copy(k0.midOcean).lerp(k1.midOcean, t);
+  out.shallowOcean.copy(k0.shallowOcean).lerp(k1.shallowOcean, t);
+  out.foamColor.copy(k0.foamColor).lerp(k1.foamColor, t);
+  out.starOpacity = THREE.MathUtils.lerp(k0.starOpacity, k1.starOpacity, t);
+  out.lanternIntensity = THREE.MathUtils.lerp(k0.lanternIntensity, k1.lanternIntensity, t);
+  out.beaconIntensity = THREE.MathUtils.lerp(k0.beaconIntensity, k1.beaconIntensity, t);
+  out.campfireIntensity = THREE.MathUtils.lerp(k0.campfireIntensity, k1.campfireIntensity, t);
+  out.lightActivation = THREE.MathUtils.lerp(k0.lightActivation, k1.lightActivation, t);
+  out.fireActivation = THREE.MathUtils.lerp(k0.fireActivation, k1.fireActivation, t);
+  out.exposure = THREE.MathUtils.lerp(k0.exposure, k1.exposure, t);
+  out.phaseLabel = getSolarPhaseLabel(h);
+  return out;
+}
 
 // Layered Gerstner swells + cross wind waves + choppy crests
 const GERSTNER_WAVES = [
@@ -1201,7 +1485,7 @@ async function loadBlenderAssets() {
   const loadOne = (name) =>
     new Promise((resolve, reject) => {
       loader.load(
-        `./assets/models/${name}.glb?v=10`,
+        `./assets/models/${name}.glb?v=11`,
         (gltf) => {
           gltf.scene.traverse((child) => {
             if (child.isMesh) {
@@ -2027,6 +2311,9 @@ async function init() {
   const zoneEl = document.getElementById('zone-value');
   const resetBtn = document.getElementById('reset-boat-btn');
   const timeRadios = document.querySelectorAll('input[name="time-of-day"]');
+  const clockPillEl = document.getElementById('clock-pill');
+  const localClockEl = document.getElementById('local-clock-value');
+  const localPhaseEl = document.getElementById('local-phase-value');
   const cameraRadios = document.querySelectorAll('input[name="camera-mode"]');
   const steerButtons = document.querySelectorAll('.steer-btn[data-control]');
 
@@ -2469,6 +2756,17 @@ async function init() {
   };
 
   let currentTimePreset = TIME_PRESETS.day;
+  let timeMode = 'auto';
+  let simulatedHourOverride = null;
+  let currentLightActivation = 0;
+  let currentFireActivation = 0;
+  let lastEnvRefreshAt = -Infinity;
+  const autoTimeState = createMutableTimeState();
+  const COLD_EMBER_TINT = new THREE.Color(0.18, 0.16, 0.15);
+  const WARM_EMBER_TINT = new THREE.Color(1, 1, 1);
+  const UNLIT_BULB_COLOR = new THREE.Color('#b8c4cc');
+  const LIT_BULB_COLOR = new THREE.Color('#ffd584');
+  const workingBulbColor = new THREE.Color();
   let cameraMode = 'free';
 
   // Dynamic sky & sun reflection probe for realistic ocean Fresnel highlights
@@ -2521,8 +2819,40 @@ async function init() {
     scene.environment = currentEnvRenderTarget.texture;
   }
 
-  function applyTimeOfDay(key) {
-    const preset = TIME_PRESETS[key] || TIME_PRESETS.day;
+  function getCurrentLocalHour(dateObj = new Date()) {
+    if (simulatedHourOverride !== null) {
+      return simulatedHourOverride;
+    }
+    return dateObj.getHours() + dateObj.getMinutes() / 60 + dateObj.getSeconds() / 3600;
+  }
+
+  function updateClockBadge(dateObj = new Date(), displayHour = getCurrentLocalHour(dateObj)) {
+    if (localClockEl) {
+      let hh;
+      let mm;
+      if (simulatedHourOverride !== null) {
+        const hNorm = ((simulatedHourOverride % 24) + 24) % 24;
+        hh = Math.floor(hNorm);
+        mm = Math.floor((hNorm - hh) * 60);
+      } else {
+        hh = dateObj.getHours();
+        mm = dateObj.getMinutes();
+      }
+      localClockEl.textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    }
+    if (localPhaseEl) {
+      const label =
+        timeMode === 'auto'
+          ? `Otomatis · ${getSolarPhaseLabel(displayHour)}`
+          : `Manual · ${currentTimePreset.phaseLabel || 'Siang'}`;
+      localPhaseEl.textContent = label;
+    }
+    if (clockPillEl) {
+      clockPillEl.classList.toggle('is-lit', currentLightActivation > 0.01 || currentFireActivation > 0.02);
+    }
+  }
+
+  function applyTimeState(preset, { refreshEnv = true } = {}) {
     currentTimePreset = preset;
 
     scene.background.copy(preset.sky);
@@ -2535,6 +2865,7 @@ async function init() {
 
     sunOrb.position.copy(preset.sunPos).multiplyScalar(1.65);
     sunOrbMat.color.copy(preset.sunColor);
+    sunOrb.visible = preset.sunPos.y > -4;
 
     hemiLight.color.copy(preset.hemiSky);
     hemiLight.groundColor.copy(preset.hemiGround);
@@ -2542,39 +2873,90 @@ async function init() {
 
     starMat.opacity = preset.starOpacity;
     renderer.toneMappingExposure = preset.exposure;
-    updateSkyEnvironment(preset);
+    if (refreshEnv) {
+      updateSkyEnvironment(preset);
+    }
 
-    const nightFactor = key === 'night' ? 1 : key === 'sunset' ? 0.65 : 0.15;
+    const lightAct = preset.lightActivation ?? 0;
+    const fireAct = preset.fireActivation ?? 0;
+    currentLightActivation = lightAct;
+    currentFireActivation = fireAct;
+
+    workingBulbColor.copy(UNLIT_BULB_COLOR).lerp(LIT_BULB_COLOR, Math.min(1, lightAct * 1.4));
+    const bulbEmissive = lightAct > 0.01 ? 0.35 + lightAct * 1.85 : 0;
+
     bowLight.intensity = preset.lanternIntensity * 0.6;
     if (lanternBulbMat) {
-      lanternBulbMat.emissiveIntensity = 0.6 + nightFactor * 1.6;
+      lanternBulbMat.color.copy(workingBulbColor);
+      lanternBulbMat.emissiveIntensity = bulbEmissive;
     }
     if (lanternRoomMat) {
-      lanternRoomMat.emissiveIntensity = 0.22 + nightFactor * 0.55;
+      lanternRoomMat.emissiveIntensity = lightAct > 0.01 ? 0.18 + lightAct * 0.6 : 0;
     }
     if (fresnelOpticMat) {
-      fresnelOpticMat.emissiveIntensity = 0.75 + nightFactor * 2.2;
+      fresnelOpticMat.emissiveIntensity = lightAct > 0.01 ? 0.55 + lightAct * 2.4 : 0;
     }
-    currentBeamScale = key === 'night' ? 1.0 : key === 'sunset' ? 0.62 : 0.06;
+
+    currentBeamScale = lightAct > 0.01 ? lightAct * (0.45 + 0.55 * (preset.beaconIntensity / 5.5)) : 0;
+    const beamActive = currentBeamScale > 0.005;
     for (const layer of beamLayers) {
+      layer.visible = beamActive;
       layer.material.uniforms.uOpacity.value = layer.userData.baseOpacity * currentBeamScale;
     }
+    beaconFlashDisc.visible = beamActive;
     beaconFlashDisc.material.uniforms.uOpacity.value =
       beaconFlashDisc.userData.baseOpacity * currentBeamScale * 0.22;
     beaconLight.intensity = preset.beaconIntensity;
-    beaconSpotLight.intensity = preset.beaconIntensity * (key === 'night' ? 7.5 : key === 'sunset' ? 4.2 : 0.3);
+    beaconSpotLight.intensity = beamActive ? preset.beaconIntensity * (4.0 + 3.5 * lightAct) : 0;
+
     tentLight.intensity = preset.lanternIntensity * 0.72;
     if (tentBulbMat) {
-      tentBulbMat.emissiveIntensity = 0.55 + nightFactor * 1.8;
+      tentBulbMat.color.copy(workingBulbColor);
+      tentBulbMat.emissiveIntensity = bulbEmissive;
     }
 
     for (const pl of pierLanternLights) {
       pl.intensity = preset.lanternIntensity;
     }
     for (const gm of lanternGlassMats) {
-      gm.emissiveIntensity = 0.5 + nightFactor * 1.6;
+      gm.color.copy(workingBulbColor);
+      gm.emissiveIntensity = bulbEmissive;
     }
+
+    if (flameMesh) {
+      flameMesh.visible = fireAct > 0.02;
+      const baseFlameScale = 0.35 + 0.65 * fireAct;
+      flameMesh.scale.setScalar(baseFlameScale);
+    }
+    if (emberBedMat) {
+      emberBedMat.color.copy(COLD_EMBER_TINT).lerp(WARM_EMBER_TINT, fireAct);
+      emberBedMat.emissiveIntensity = fireAct > 0.02 ? fireAct * 1.35 : 0;
+    }
+    campfireLight.intensity = preset.campfireIntensity;
+
     boatWake.setColors(preset.foamColor, preset.shallowOcean);
+  }
+
+  function applyTimeOfDay(mode, { refreshEnv = true, elapsedNow = 0 } = {}) {
+    const validMode = mode === 'auto' || mode in TIME_PRESETS ? mode : 'auto';
+    timeMode = validMode;
+    for (const radio of timeRadios) {
+      radio.checked = radio.value === validMode;
+    }
+
+    const now = new Date();
+    const hour = getCurrentLocalHour(now);
+    if (validMode === 'auto') {
+      const state = computeLightingStateForHour(hour, autoTimeState);
+      applyTimeState(state, { refreshEnv });
+    } else {
+      applyTimeState(TIME_PRESETS[validMode], { refreshEnv });
+    }
+
+    if (refreshEnv) {
+      lastEnvRefreshAt = elapsedNow;
+    }
+    updateClockBadge(now, hour);
   }
 
   function resetBoat() {
@@ -2654,7 +3036,10 @@ async function init() {
   timeRadios.forEach((radio) => {
     radio.addEventListener('change', (e) => {
       if (e.target.checked) {
-        applyTimeOfDay(e.target.value);
+        if (e.target.value === 'auto') {
+          simulatedHourOverride = null;
+        }
+        applyTimeOfDay(e.target.value, { refreshEnv: true, elapsedNow: clock.elapsedTime });
       }
     });
   });
@@ -2678,7 +3063,17 @@ async function init() {
 
   window.__beachSceneState = {
     getBoatState: () => ({ ...boatState }),
-    setTimeOfDay: applyTimeOfDay,
+    getTimeMode: () => timeMode,
+    setTimeOfDay: (key) => {
+      if (key === 'auto') {
+        simulatedHourOverride = null;
+      }
+      applyTimeOfDay(key, { refreshEnv: true, elapsedNow: clock.elapsedTime });
+    },
+    setSimulatedHour: (hour) => {
+      simulatedHourOverride = typeof hour === 'number' ? hour : null;
+      applyTimeOfDay('auto', { refreshEnv: true, elapsedNow: clock.elapsedTime });
+    },
     focusCamera: (pos, target) => {
       camera.position.set(pos[0], pos[1], pos[2]);
       controls.target.set(target[0], target[1], target[2]);
@@ -2686,10 +3081,10 @@ async function init() {
     },
   };
 
-  applyTimeOfDay('day');
-
-  // Animation loop
+  // Clock initialized before applyTimeOfDay so elapsedNow matches
   const clock = new THREE.Clock();
+  let lastClockSecond = -1;
+  applyTimeOfDay('auto', { refreshEnv: true, elapsedNow: 0 });
   const colorWorking = new THREE.Color();
 
   function updateOceanVertices(elapsed, dt) {
@@ -2948,6 +3343,19 @@ async function init() {
     const elapsed = clock.elapsedTime;
     const animTime = prefersReducedMotion ? 0 : elapsed;
 
+    const nowMs = Date.now();
+    const wholeSecond = Math.floor(nowMs / 1000);
+    if (wholeSecond !== lastClockSecond) {
+      lastClockSecond = wholeSecond;
+      const nowDate = new Date(nowMs);
+      if (timeMode === 'auto' && simulatedHourOverride === null) {
+        const needsEnvRefresh = elapsed - lastEnvRefreshAt >= 15;
+        applyTimeOfDay('auto', { refreshEnv: needsEnvRefresh, elapsedNow: elapsed });
+      } else {
+        updateClockBadge(nowDate);
+      }
+    }
+
     updateOceanVertices(animTime, prefersReducedMotion ? 0 : dt);
     updateBoatPhysics(dt, animTime);
     pierFisher.update(animTime);
@@ -2964,42 +3372,49 @@ async function init() {
         }
       }
 
-      const beaconAngle = elapsed * 0.65;
-      beaconGroup.rotation.y = beaconAngle;
-      if (fresnelOpticObj) {
-        fresnelOpticObj.rotation.y = beaconAngle;
-      }
-
-      const dxCam = camera.position.x - beaconWorldPos.x;
-      const dzCam = camera.position.z - beaconWorldPos.z;
-      const invCamLen = 1 / (Math.hypot(dxCam, dzCam) || 1);
-      const beamAlign = Math.abs(
-        Math.sin(beaconAngle) * (dxCam * invCamLen) + Math.cos(beaconAngle) * (dzCam * invCamLen)
-      );
-      const flashFactor = Math.pow(beamAlign, 12.0);
-      for (const layer of beamLayers) {
-        const uniforms = layer.material.uniforms;
-        if (uniforms.uTime) {
-          uniforms.uTime.value = elapsed;
+      if (currentBeamScale > 0.005) {
+        const beaconAngle = elapsed * 0.65;
+        beaconGroup.rotation.y = beaconAngle;
+        if (fresnelOpticObj) {
+          fresnelOpticObj.rotation.y = beaconAngle;
         }
-        uniforms.uOpacity.value =
-          layer.userData.baseOpacity * currentBeamScale * (1.0 + flashFactor * 0.25);
-      }
-      beaconFlashDisc.lookAt(camera.position);
-      beaconFlashDisc.material.uniforms.uOpacity.value =
-        beaconFlashDisc.userData.baseOpacity * currentBeamScale * (0.22 + flashFactor * 1.15);
-      beaconFlashDisc.scale.setScalar(0.85 + flashFactor * 0.65);
 
-      const flicker = 0.85 + Math.sin(elapsed * 14) * 0.1 + Math.cos(elapsed * 23) * 0.08;
-      const widthFlicker = 0.96 + Math.sin(elapsed * 11.5) * 0.05;
-      if (flameMesh) {
-        flameMesh.scale.set(widthFlicker, flicker, widthFlicker);
-        flameMesh.rotation.y = Math.sin(elapsed * 4.2) * 0.12;
+        const dxCam = camera.position.x - beaconWorldPos.x;
+        const dzCam = camera.position.z - beaconWorldPos.z;
+        const invCamLen = 1 / (Math.hypot(dxCam, dzCam) || 1);
+        const beamAlign = Math.abs(
+          Math.sin(beaconAngle) * (dxCam * invCamLen) + Math.cos(beaconAngle) * (dzCam * invCamLen)
+        );
+        const flashFactor = Math.pow(beamAlign, 12.0);
+        for (const layer of beamLayers) {
+          const uniforms = layer.material.uniforms;
+          if (uniforms.uTime) {
+            uniforms.uTime.value = elapsed;
+          }
+          uniforms.uOpacity.value =
+            layer.userData.baseOpacity * currentBeamScale * (1.0 + flashFactor * 0.25);
+        }
+        beaconFlashDisc.lookAt(camera.position);
+        beaconFlashDisc.material.uniforms.uOpacity.value =
+          beaconFlashDisc.userData.baseOpacity * currentBeamScale * (0.22 + flashFactor * 1.15);
+        beaconFlashDisc.scale.setScalar(0.85 + flashFactor * 0.65);
       }
-      if (emberBedMat) {
-        emberBedMat.emissiveIntensity = 1.2 + flicker * 0.75;
+
+      if (currentFireActivation > 0.02) {
+        const flicker = 0.85 + Math.sin(elapsed * 14) * 0.1 + Math.cos(elapsed * 23) * 0.08;
+        const widthFlicker = 0.96 + Math.sin(elapsed * 11.5) * 0.05;
+        const fireGrow = 0.35 + 0.65 * currentFireActivation;
+        if (flameMesh) {
+          flameMesh.scale.set(widthFlicker * fireGrow, flicker * fireGrow, widthFlicker * fireGrow);
+          flameMesh.rotation.y = Math.sin(elapsed * 4.2) * 0.12;
+        }
+        if (emberBedMat) {
+          emberBedMat.emissiveIntensity = currentFireActivation * (1.2 + flicker * 0.75);
+        }
+        campfireLight.intensity = currentTimePreset.campfireIntensity * flicker;
+      } else {
+        campfireLight.intensity = 0;
       }
-      campfireLight.intensity = currentTimePreset.campfireIntensity * flicker;
 
       for (const gull of seagulls) {
         const { leftWing, rightWing, radius, altitude, speed, phase } = gull.userData;
